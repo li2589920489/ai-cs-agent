@@ -133,3 +133,10 @@ node_modules/
 # ui stuff
 
 ui/.next/
+# ai-cs-agent runtime data (generated at runtime / too large for git)
+python-backend/data/models/
+python-backend/data/eval/
+python-backend/data/chroma_rag/
+python-backend/data/knowledge.db
+python-backend/data/*.log
+python-backend/data/__pycache__/

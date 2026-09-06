@@ -13,14 +13,14 @@ interface GuardrailsProps {
 
 export function Guardrails({ guardrails, inputGuardrails }: GuardrailsProps) {
   const guardrailNameMap: Record<string, string> = {
-    relevance_guardrail: "Relevance Guardrail",
-    jailbreak_guardrail: "Jailbreak Guardrail",
+    relevance_guardrail: "内容相关性检测",
+    jailbreak_guardrail: "越狱攻击检测",
   };
 
   const guardrailDescriptionMap: Record<string, string> = {
-    "Relevance Guardrail": "Ensure messages are relevant to airline support",
-    "Jailbreak Guardrail":
-      "Detect and block attempts to bypass or override system instructions",
+    "内容相关性检测": "确保用户消息与电商客服场景相关",
+    "越狱攻击检测":
+      "检测并阻止试图绕过系统指令的越狱攻击",
   };
 
   const extractGuardrailName = (rawName: string): string =>
@@ -43,8 +43,8 @@ export function Guardrails({ guardrails, inputGuardrails }: GuardrailsProps) {
 
   return (
     <PanelSection
-      title="Guardrails"
-      icon={<Shield className="h-4 w-4 text-blue-600" />}
+      title="安全护栏"
+      icon={<Shield className="h-4 w-4 text-orange-500" />}
     >
       <div className="grid grid-cols-3 gap-3">
         {guardrailsToShow.map((gr) => (

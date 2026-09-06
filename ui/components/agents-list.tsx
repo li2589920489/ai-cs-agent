@@ -15,10 +15,10 @@ export function AgentsList({ agents, currentAgent }: AgentsListProps) {
   const activeAgent = agents.find((a) => a.name === currentAgent);
   return (
     <PanelSection
-      title="Available Agents"
-      icon={<Bot className="h-4 w-4 text-blue-600" />}
+      title="专业Agent团队"
+      icon={<Bot className="h-4 w-4 text-orange-500" />}
     >
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-2">
         {agents.map((agent) => (
           <Card
             key={agent.name}
@@ -26,10 +26,10 @@ export function AgentsList({ agents, currentAgent }: AgentsListProps) {
               agent.name === currentAgent ||
               activeAgent?.handoffs.includes(agent.name)
                 ? ""
-                : "opacity-50 filter grayscale cursor-not-allowed pointer-events-none"
+                : "opacity-40 filter grayscale"
             } ${
               agent.name === currentAgent
-                ? "ring-1 ring-blue-500 shadow-md"
+                ? "ring-1 ring-orange-500 shadow-md"
                 : ""
             }`}
           >
@@ -43,8 +43,8 @@ export function AgentsList({ agents, currentAgent }: AgentsListProps) {
                 {agent.description}
               </p>
               {agent.name === currentAgent && (
-                <Badge className="mt-2 bg-blue-600 hover:bg-blue-700 text-white">
-                  Active
+                <Badge className="mt-2 bg-orange-500 hover:bg-orange-600 text-white">
+                  运行中
                 </Badge>
               )}
             </CardContent>

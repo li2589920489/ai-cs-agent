@@ -29,7 +29,7 @@ export function ChatKitPanel({
       domainKey: CHATKIT_DOMAIN_KEY,
     },
     composer: {
-      placeholder: "Message...",
+      placeholder: "输入您的问题，比如：我的订单到哪了...",
     },
     history: {
       enabled: false,
@@ -40,25 +40,19 @@ export function ChatKitPanel({
       density: "normal",
       color: {
         accent: {
-          primary: "#2563eb",
+          primary: "#f97316",
           level: 1,
         },
       },
     },
     initialThread: initialThreadId ?? null,
     startScreen: {
-      greeting: "Hi! I'm your airline assistant. How can I help today?",
+      greeting: "你好！我是淘宝店铺AI客服小智，有6个专业小伙伴随时为你服务。",
       prompts: [
-        { label: "Change my seat", prompt: "Can you move me to seat 14C?" },
-        {
-          label: "Flight status",
-          prompt: "What's the status of flight FLT-123?",
-        },
-        {
-          label: "Missed connection",
-          prompt:
-            "My flight from Paris to New York was delayed and I missed my connection to Austin. Also, my checked bag is missing and I need to spend the night in New York. Can you help me?",
-        },
+        { label: "查订单物流", prompt: "我的订单TB20260812001到哪了？" },
+        { label: "看有哪些优惠券", prompt: "现在有什么优惠券可以用？" },
+        { label: "搜坚果零食", prompt: "有什么坚果类的零食推荐吗？" },
+        { label: "退货/售后", prompt: "我想退货TB20260812001，刚买的坚果太多了" },
       ],
     },
     threadItemActions: {
@@ -87,10 +81,9 @@ export function ChatKitPanel({
 
   return (
     <div className="flex flex-col h-full flex-1 bg-white shadow-sm border border-gray-200 border-t-0 rounded-xl">
-      <div className="bg-blue-600 text-white h-12 px-4 flex items-center rounded-t-xl">
-        <h2 className="font-semibold text-sm sm:text-base lg:text-lg">
-          Customer View
-        </h2>
+      <div className="bg-orange-500 text-white h-12 px-4 flex items-center rounded-t-xl">
+        <h2 className="font-semibold text-sm">
+          客户咨询</h2>
       </div>
       <div className="flex-1 overflow-hidden pb-1.5">
         <ChatKit

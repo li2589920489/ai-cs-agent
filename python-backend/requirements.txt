@@ -1,5 +1,25 @@
+# ===== 核心 Agent 框架 =====
 openai-agents
 openai-chatkit
 pydantic
 fastapi
 uvicorn
+
+# ===== 基础工具 =====
+python-dotenv
+pypdf
+python-docx
+
+# ===== RAG 完整技术栈 =====
+chromadb
+sentence-transformers      # 本地中文 Embedding(bge-small-zh) + Re-ranking(bge-reranker)
+rank-bm25                  # BM25 关键词检索
+jieba                      # 中文分词
+
+# ===== MCP 架构 =====
+fastmcp
+
+# ===== LangChain / LangGraph =====
+langchain-core
+langchain-text-splitters
+langgraph

@@ -1,0 +1,28 @@
+# 电商客服 AI 智能体 — 一键编排
+# 用法：在项目根目录执行  docker compose up -d --build
+services:
+  backend:
+    build:
+      context: ./python-backend
+    container_name: ecommerce-cs-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
+      - CHROMA_PERSIST_DIR=/app/data/chroma_rag
+      - ENVIRONMENT=production
+    volumes:
+      # 向量库 + 知识库持久化到本地卷
+      - rag_data:/app/data
+      # BGE 模型文件（本地 bind mount，只读，避免镜像臃肿）
+      - ./python-backend/data/models:/app/data/models:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  rag_data:

@@ -18,7 +18,13 @@ interface RunnerOutputProps {
 }
 
 function formatEventName(type: string) {
-  return (type.charAt(0).toUpperCase() + type.slice(1)).replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    handoff: "Agent交接",
+    tool_call: "工具调用",
+    tool_output: "工具返回",
+    context_update: "上下文更新",
+  };
+  return labels[type] || type;
 }
 
 function EventIcon({ type, icon }: { type: string; icon?: string }) {
@@ -226,14 +232,14 @@ export function RunnerOutput({ runnerEvents }: RunnerOutputProps) {
   return (
     <div className="flex-1 overflow-hidden">
       <PanelSection
-        title="Runner Output"
-        icon={<MessageSquareMore className="h-4 w-4 text-blue-600" />}
+        title="Agent 运行日志"
+        icon={<MessageSquareMore className="h-4 w-4 text-orange-500" />}
       >
         <ScrollArea className="h-[calc(100%-2rem)] rounded-md border border-gray-200 bg-gray-100 shadow-sm">
           <div className="p-3 space-y-2.5">
             {runnerEvents.length === 0 ? (
               <p className="text-center text-zinc-500 p-4">
-                No runner events yet
+                暂无运行日志，发送消息后这里会显示 Agent 活动
               </p>
             ) : (
               groupedEvents.map((group) => {

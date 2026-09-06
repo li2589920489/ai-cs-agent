@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AgentPanel } from "@/components/agent-panel";
-import { ChatKitPanel } from "@/components/chatkit-panel";
-import type { Agent, AgentEvent, GuardrailCheck } from "@/lib/types";
-import { fetchBootstrapState, fetchThreadState } from "@/lib/api";
+import { ChatPanel } from "@/components/chat-panel";
+import { EscalationPanel } from "@/components/escalation-panel";
+import { KnowledgePanel } from "@/components/knowledge-panel";
+import { AgentWorkspace } from "@/components/agent-workspace";
+import type { Agent, AgentEvent, GuardrailCheck, EventType } from "@/lib/types";
+import { fetchBootstrapState } from "@/lib/api";
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -12,115 +15,98 @@ export default function Home() {
   const [currentAgent, setCurrentAgent] = useState<string>("");
   const [guardrails, setGuardrails] = useState<GuardrailCheck[]>([]);
   const [context, setContext] = useState<Record<string, any>>({});
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [initialThreadId, setInitialThreadId] = useState<string | null>(null);
-
-  const normalizeEvents = useCallback((items: AgentEvent[]) => {
-    if (!items.length) return items;
-    const now = Date.now();
-    const latestNonProgress = items
-      .filter((e) => e.type !== "progress_update")
-      .reduce((max, e) => Math.max(max, e.timestamp.getTime()), 0);
-    const pruned = items.filter((e) => {
-      if (e.type !== "progress_update") return true;
-      const ts = e.timestamp.getTime();
-      // Drop old progress once a newer non-progress exists, or after 15s
-      if (latestNonProgress && ts < latestNonProgress) return false;
-      if (now - ts > 15000) return false;
-      return true;
-    });
-    return pruned;
-  }, []);
-
-  const hydrateState = useCallback(async (id: string | null) => {
-    if (!id) return;
-    const data = await fetchThreadState(id);
-    if (!data) return;
-
-    setCurrentAgent(data.current_agent || "");
-    setContext(data.context || {});
-    if (Array.isArray(data.agents)) setAgents(data.agents);
-    if (Array.isArray(data.events)) {
-      setEvents(
-        data.events.map((e: any) => ({
-          ...e,
-          timestamp: new Date(e.timestamp ?? Date.now()),
-        }))
-      );
-    }
-    if (Array.isArray(data.guardrails)) {
-      setGuardrails(
-        data.guardrails.map((g: any) => ({
-          ...g,
-          timestamp: new Date(g.timestamp ?? Date.now()),
-        }))
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    if (threadId) {
-      void hydrateState(threadId);
-    }
-  }, [threadId, hydrateState]);
+  const [escalation, setEscalation] = useState<any>(null);
+  const [tab, setTab] = useState<"chat" | "knowledge" | "workspace">("chat");
 
   useEffect(() => {
     (async () => {
       const bootstrap = await fetchBootstrapState();
       if (!bootstrap) return;
-      setInitialThreadId(bootstrap.thread_id || null);
-      setThreadId(bootstrap.thread_id || null);
       if (bootstrap.current_agent) setCurrentAgent(bootstrap.current_agent);
       if (Array.isArray(bootstrap.agents)) setAgents(bootstrap.agents);
       if (bootstrap.context) setContext(bootstrap.context);
-      if (Array.isArray(bootstrap.events)) {
-        setEvents(
-          normalizeEvents(
-            bootstrap.events.map((e: any) => ({
-              ...e,
-              timestamp: new Date(e.timestamp ?? Date.now()),
-            }))
-          )
-        );
-      }
-      if (Array.isArray(bootstrap.guardrails)) {
-        setGuardrails(
-          bootstrap.guardrails.map((g: any) => ({
-            ...g,
-            timestamp: new Date(g.timestamp ?? Date.now()),
-          }))
-        );
-      }
     })();
   }, []);
 
-  const handleThreadChange = useCallback((id: string | null) => {
-    setThreadId(id);
-  }, []);
+  const handleAgentTrace = useCallback((trace: any[]) => {
+    if (!trace || trace.length === 0) return;
 
-  const handleBindThread = useCallback((id: string) => {
-    setThreadId(id);
-  }, []);
+    const newEvents: AgentEvent[] = trace.map((t, i) => ({
+      id: `${Date.now()}-${i}`,
+      type: t.type as EventType,
+      agent: t.agent || t.from || "",
+      content: t.type === "handoff" ? `${t.from} ${String.fromCharCode(8594)} ${t.to}` : (t.tool || t.result || ""),
+      metadata: t.type === "handoff"
+        ? { source_agent: t.from, target_agent: t.to }
+        : (t.type === "tool_call" ? { tool_name: t.tool, tool_args: {} as Record<string, any> } : { tool_result: t.result || "" }),
+      timestamp: new Date(),
+    }));
 
-  const handleResponseEnd = useCallback(() => {
-    void hydrateState(threadId);
-  }, [hydrateState, threadId]);
+    setEvents((prev) => [...prev, ...newEvents]);
+
+    // 更新当前活跃 Agent
+    const lastHandoff = [...trace].reverse().find(t => t.type === "handoff");
+    if (lastHandoff) {
+      setCurrentAgent(lastHandoff.to);
+    } else if (trace.length > 0) {
+      const firstAgent = trace[0].agent || trace[0].from;
+      if (firstAgent) setCurrentAgent(firstAgent);
+    }
+  }, []);
 
   return (
-    <main className="flex h-screen gap-2 bg-gray-100 p-2">
-      <AgentPanel
-        agents={agents}
-        currentAgent={currentAgent}
-        events={events}
-        guardrails={guardrails}
-        context={context}
-      />
-      <ChatKitPanel
-        initialThreadId={initialThreadId}
-        onThreadChange={handleThreadChange}
-        onResponseEnd={handleResponseEnd}
-        onRunnerBindThread={handleBindThread}
-      />
-    </main>
+    <div className="flex flex-col h-screen bg-gray-100">
+      {/* 顶部 Tab 切换 */}
+      <div className="flex gap-2 px-2 pt-2">
+        <button
+          onClick={() => setTab("chat")}
+          className={`px-4 py-2 text-sm rounded-t-lg transition-colors ${
+            tab === "chat"
+              ? "bg-white text-orange-600 font-medium border border-b-0 border-gray-200"
+              : "bg-transparent text-gray-500 hover:bg-gray-200"
+          }`}
+        >
+          客服对话
+        </button>
+        <button
+          onClick={() => setTab("knowledge")}
+          className={`px-4 py-2 text-sm rounded-t-lg transition-colors ${
+            tab === "knowledge"
+              ? "bg-white text-orange-600 font-medium border border-b-0 border-gray-200"
+              : "bg-transparent text-gray-500 hover:bg-gray-200"
+          }`}
+        >
+          知识库管理
+        </button>
+        <button
+          onClick={() => setTab("workspace")}
+          className={`px-4 py-2 text-sm rounded-t-lg transition-colors ${
+            tab === "workspace"
+              ? "bg-white text-orange-600 font-medium border border-b-0 border-gray-200"
+              : "bg-transparent text-gray-500 hover:bg-gray-200"
+          }`}
+        >
+          坐席工作台
+        </button>
+      </div>
+
+      <main className={`${tab === "chat" ? "flex" : "hidden"} flex-1 gap-2 p-2 min-h-0`}>
+        <AgentPanel
+          agents={agents}
+          currentAgent={currentAgent}
+          events={events}
+          guardrails={guardrails}
+          context={context}
+        />
+        <ChatPanel onAgentTrace={handleAgentTrace} onEscalation={setEscalation} />
+        <EscalationPanel escalation={escalation} onClose={() => setEscalation(null)} />
+      </main>
+      <main className={`${tab === "knowledge" ? "flex-1" : "hidden"} p-2 min-h-0`}>
+        <KnowledgePanel />
+      </main>
+      <main className={`${tab === "workspace" ? "flex-1" : "hidden"} p-2 min-h-0`}>
+        <AgentWorkspace />
+      </main>
+    </div>
   );
 }

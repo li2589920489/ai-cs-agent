@@ -5,16 +5,8 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: "/chat",
-        destination: "http://127.0.0.1:8000/chat",
-      },
-      {
-        source: "/chatkit",
-        destination: "http://127.0.0.1:8000/chatkit",
-      },
-      {
-        source: "/chatkit/:path*",
-        destination: "http://127.0.0.1:8000/chatkit/:path*",
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:8000/api/:path*",
       },
     ];
   },
