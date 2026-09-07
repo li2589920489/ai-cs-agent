@@ -141,12 +141,15 @@ async def order_status_tool(
     ctx.order_items = order["items"]
 
     tracking = order.get("tracking", {})
+    items_str = ", ".join(
+        f"{item['name']}({item['sku']})×{item['quantity']}" for item in order["items"]
+    )
     lines = [
         f"订单号: {order['order_number']}",
         f"状态: {order['status']}",
         f"下单时间: {order['order_time']}",
         f"支付金额: ¥{order['paid_amount']}",
-        f"商品: {', '.join(f'{item['name']}({item['sku']})×{item['quantity']}' for item in order['items'])}",
+        f"商品: {items_str}",
     ]
 
     if order.get("coupon_used"):
@@ -239,6 +242,11 @@ async def product_info_tool(
 
     stock_info = "\n".join(f"  - {sku}: {qty}件" for sku, qty in product["stock"].items())
 
+    shipping_text = (
+        "是"
+        if product["free_shipping"]
+        else f"否，运费¥{product.get('shipping_fee', '8.00')}"
+    )
     return (
         f"商品详情:\n"
         f"名称: {product['name']}\n"
@@ -247,7 +255,7 @@ async def product_info_tool(
         f"描述: {product['description']}\n"
         f"可选规格:\n{stock_info}\n"
         f"评分: {product['rating']}/5.0（{product['reviews']}条评价）\n"
-        f"是否包邮: {'是' if product['free_shipping'] else f'否，运费¥{product.get('shipping_fee', '8.00')}'}\n"
+        f"是否包邮: {shipping_text}\n"
     )
 
 

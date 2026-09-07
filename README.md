@@ -7,7 +7,7 @@
 </p>
 
 > **TL;DR**
-> 基于 OpenAI Agents SDK 改造的多智能体电商客服系统。**Triage 分诊 + 5 个专业业务 Agent 接力**，集成完整 RAG 检索管线、MCP Server 标准化、LangGraph 售后状态机与 Docker 容器化，内置 Human-in-the-Loop 兜底，**经 240 条黄金用例实测**。
+> 基于 OpenAI Agents SDK 改造的多智能体电商客服系统。**Triage 分诊 + 5 个专业业务 Agent 接力**，集成完整 RAG 检索管线、MCP Server 标准化、LangGraph 售后状态机与 Docker 容器化，内置 Human-in-the-Loop 兜底，**经 80 条黄金用例实测**。
 >
 > Fork 自 [openai/openai-cs-agents-demo](https://github.com/openai/openai-cs-agents-demo)，已完成电商场景业务化改造 + 工程化补全。
 
@@ -17,11 +17,12 @@
 
 | 指标 | 数字 |
 |---|---|
-| **Triage 意图识别准确率** | **98.75%**（240 / 240 条测试用例通过） |
-| **RAG 检索 Recall@10** | **73.8%** |
-| **RAG 检索 MRR@10** | **52.0%** |
+| **Triage 意图识别准确率** | **98.75%**（79 / 80 条测试用例通过；easy 65/65 + hard 14/15）|
+| **RAG 检索 Recall@10**（纯向量） | **75.0%** |
+| **RAG 检索 MRR@10**（纯向量） | **52.1%** |
+| **RAG 检索 nDCG@10**（纯向量） | **57.6%** |
 | **Agent 数量** | **6** 个（Triage + 4 业务 + Human Escalation） |
-| **工具数量** | **17** 个 function_tool |
+| **工具数量** | **13 业务工具 + 4 Guardrail + 4 MCP 工具 = 21 个 function_tool** |
 | **容器镜像大小** | **2.6 GB**（CPU 版 torch，从 6 GB 瘦身） |
 
 ---
@@ -41,10 +42,11 @@
 | 需求分析 | [需求分析文档.md](需求分析文档.md) | 业务场景、用户故事与验收标准 |
 | 分流评测 | [分流评测报告.md](分流评测报告.md) | Triage 准确率 98.75% 的评测过程 |
 | RAG 评测 | [RAG检索评测报告.md](RAG检索评测报告.md) | Recall@10 / MRR@10 的评测过程 |
-| 数据选型 | [评测数据集选型与落地方案.md](评测数据集选型与落地方案.md) | 240 条用例设计思路 |
+| 数据选型 | [评测数据集选型与落地方案.md](评测数据集选型与落地方案.md) | 80 条用例设计思路 |
 | 演示总览 | [docs/演示实录总览.html](docs/演示实录总览.html) | 8 个核心场景的完整演示录屏 |
 | 演示截图 | [docs/screenshots/](docs/screenshots/) | 13 张核心流程截图 |
-| 接入方案 | [抖音接入方案.md](抖音接入方案.md) | 抖音开放平台回调接入设计 |
+| 抖音接入 | [抖音接入方案.md](抖音接入方案.md) | 抖店开放平台回调接入设计 + Mock 联调 |
+| 淘宝接入 | [淘宝接入方案.md](淘宝接入方案.md) | TOP API 接入设计 + 坐席一键确认 Mock 联调 |
 
 ---
 
@@ -242,40 +244,63 @@ cd python-backend
 ```
 ai-cs-agent/
 ├── python-backend/
-│   ├── main.py                # FastAPI 入口（/api/chat /api/knowledge /health）
-│   ├── mcp_server.py          # FastMCP Server（4 工具）
-│   ├── after_sales_graph.py   # LangGraph 售后状态机
-│   ├── demo_rag.py            # RAG 独立验证脚本
-│   ├── download_models.py     # BGE 模型下载（本地化）
-│   ├── knowledge_store.py     # SQLite 知识库（多租户）
-│   ├── doc_importer.py        # PDF/Word/TXT 文档导入 + LLM 提取
-│   ├── rag/                   # 完整 RAG 包
-│   │   ├── chunking.py        #   语义分块
-│   │   ├── embedding.py       #   BGE 向量化（可降级）
-│   │   ├── bm25.py            #   BM25 关键词检索
-│   │   ├── vector_store.py    #   ChromaDB 封装
-│   │   ├── reranker.py        #   bge-reranker 精排
-│   │   ├── pipeline.py        #   混合检索 + RRF 融合
-│   │   └── indexer.py         #   索引构建（backend 自动重建）
+│   ├── main.py                  # FastAPI 入口（/api/chat /api/knowledge /health）
+│   ├── server.py                # ChatKit 桥接（OpenAI 官方组件）
+│   ├── chat_service.py          # 共享 run_chat()：消息→Triage→Agent→回复+trace
+│   ├── mcp_server.py            # FastMCP Server（4 工具）
+│   ├── after_sales_graph.py     # LangGraph 售后状态机
+│   ├── demo_rag.py              # RAG 独立验证脚本
+│   ├── download_models.py       # BGE 模型下载（本地化）
+│   ├── download_ecom_retrieval.py  # EcomRetrieval 数据集下载脚本
+│   ├── restore_models.py        # 从 HF 缓存恢复 BGE 模型
+│   ├── eval_routing.py          # Triage 路由评测（80 条）
+│   ├── eval_retrieval.py        # RAG 检索评测（1000 query × 10 万 corpus）
+│   ├── eval_rrf_tuning.py       # RRF 调参实验（推翻混合检索）
+│   ├── doc_importer.py          # PDF/Word/TXT 文档导入 + LLM 提取
+│   ├── knowledge_store.py       # SQLite 知识库（多租户）
+│   ├── memory_store.py          # 会话记忆存储
+│   ├── douyin_adapter.py        # 抖店客服消息适配层（验签 + 解析）
+│   ├── douyin_webhook.py        # 抖店消息推送 FastAPI 服务（8001）
+│   ├── mock_douyin.py           # 抖店消息推送 Mock（本地联调）
+│   ├── taobao_adapter.py        # 淘宝/天猫客服消息适配层（OAuth + AES + 签名）
+│   ├── taobao_webhook.py        # 淘宝消息推送 FastAPI 服务（8002 + 坐席确认队列）
+│   ├── mock_taobao.py           # 淘宝消息推送 Mock（本地联调）
+│   ├── rag/                     # 完整 RAG 包
+│   │   ├── chunking.py          #   语义分块
+│   │   ├── embedding.py         #   BGE 向量化（可降级）
+│   │   ├── bm25.py              #   BM25 关键词检索
+│   │   ├── vector_store.py      #   ChromaDB 封装
+│   │   ├── reranker.py          #   bge-reranker 精排
+│   │   ├── pipeline.py          #   混合检索 + RRF 融合
+│   │   └── indexer.py           #   索引构建（backend 自动重建）
 │   ├── ecommerce/
-│   │   ├── agents.py          # 6 Agent 定义 + handoff 关系
-│   │   ├── context.py         # 共享上下文
-│   │   ├── tools.py           # 工具函数（含 RAG 接入）
-│   │   ├── demo_data.py       # 模拟商品/订单/优惠券/政策
-│   │   └── guardrails.py      # 安全护栏
+│   │   ├── agents.py            # 6 Agent 定义 + handoff 关系
+│   │   ├── context.py           # 共享上下文
+│   │   ├── tools.py             # 13 个业务工具（含 RAG 接入）
+│   │   ├── demo_data.py         # 模拟商品/订单/优惠券/政策
+│   │   └── guardrails.py        # 4 个 Guardrail（输入 + 输出安全护栏）
 │   ├── data/
-│   │   ├── models/            # BGE 模型（本地，bind mount 挂载）
-│   │   ├── chroma_rag/        # ChromaDB 向量库
-│   │   └── knowledge.db       # SQLite 知识库
-│   ├── Dockerfile             # 容器化（CPU torch + 国内源）
+│   │   ├── models/              # BGE 模型（本地，bind mount 挂载）
+│   │   ├── chroma_rag/          # ChromaDB 向量库
+│   │   ├── eval/                # 评测数据 + 结果 JSON
+│   │   └── knowledge.db         # SQLite 知识库
+│   ├── Dockerfile               # 容器化（CPU torch + 国内源）
 │   └── requirements.txt
-├── ui/                        # Next.js 前端
-├── docs/                      # 演示文档与截图
-│   ├── screenshots/           # 13 张核心流程截图
+├── ui/                          # Next.js 前端
+├── docs/                        # 演示文档与截图
+│   ├── screenshots/             # 13 张核心流程截图
 │   └── 演示实录总览.html
-├── docker-compose.yml         # 一键编排 + 模型卷挂载
-├── README.md                  # 本文件
-└── LICENSE                    # MIT License（基于 openai/openai-cs-agents-demo）
+├── docker-compose.yml           # 一键编排 + 模型卷挂载
+├── 抖音接入方案.md              # 抖店开放平台接入设计 + Mock 联调
+├── 淘宝接入方案.md              # 淘宝 TOP API 接入设计 + Mock 联调
+├── DESIGN.md                    # 系统架构详解
+├── 技术方案文档.md              # 技术实现方案
+├── 需求分析文档.md              # 业务场景分析
+├── 分流评测报告.md              # Triage 98.75% 评测过程
+├── RAG检索评测报告.md           # RAG 检索评测过程
+├── 评测数据集选型与落地方案.md  # 评测数据集选型思路
+├── README.md                    # 本文件
+└── LICENSE                      # MIT License（基于 openai/openai-cs-agents-demo）
 ```
 
 ---

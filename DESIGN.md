@@ -11,7 +11,7 @@
 ### 核心价值
 - **对用户**：7×24 即时响应，订单、商品、售后一站式解决
 - **对商家**：减少 70%+ 重复性客服工作量，人工只需处理复杂案例
-- **对面试**：展示多 Agent 架构、RAG、Human-in-the-Loop、生产级工程能力
+- **对开发者**：体现多 Agent 架构、RAG、Human-in-the-Loop、生产级工程能力
 
 ---
 
@@ -300,7 +300,7 @@ Human Escalation → Triage (返回)
 
 ---
 
-## 十、技术亮点（面试可用）
+## 十、技术亮点
 
 1. **6 Agent 多智能体协作**：Triage 分流 + Handoff 接力，非简单串行
 2. **Human-in-the-Loop**：复杂/敏感场景自动标记转人工，生成结构化摘要
@@ -317,38 +317,80 @@ Human Escalation → Triage (返回)
 ```
 ai-cs-agent/
 ├── python-backend/
-│   ├── main.py              # FastAPI 入口 + /api/chat + /api/agents + /health
-│   ├── server.py            # ChatKit Server（已弃用）
-│   ├── memory_store.py      # 内存存储
+│   ├── main.py                  # FastAPI 入口 + /api/chat + /api/agents + /health
+│   ├── server.py                # ChatKit 桥接（OpenAI 官方组件）
+│   ├── chat_service.py          # 共享 run_chat()：消息→Triage→Agent→回复+trace
+│   ├── mcp_server.py            # FastMCP Server（4 个 MCP 工具）
+│   ├── after_sales_graph.py     # LangGraph 售后状态机
+│   ├── demo_rag.py              # RAG 独立验证脚本
+│   ├── download_models.py       # BGE 模型下载（本地化）
+│   ├── download_ecom_retrieval.py  # EcomRetrieval 数据集下载脚本
+│   ├── restore_models.py        # 从 HF 缓存恢复 BGE 模型
+│   ├── eval_routing.py          # Triage 路由评测（80 条）
+│   ├── eval_retrieval.py        # RAG 检索评测（1000 query × 10 万 corpus）
+│   ├── eval_rrf_tuning.py       # RRF 调参实验（推翻混合检索）
+│   ├── doc_importer.py          # PDF/Word/TXT 文档导入 + LLM 提取
+│   ├── knowledge_store.py       # SQLite 知识库（多租户）
+│   ├── memory_store.py          # 会话记忆存储（30 分钟过期）
+│   ├── douyin_adapter.py        # 抖店客服消息适配层
+│   ├── douyin_webhook.py        # 抖店消息推送 FastAPI 服务（8001）
+│   ├── mock_douyin.py           # 抖店消息推送 Mock
+│   ├── taobao_adapter.py        # 淘宝/天猫客服消息适配层（OAuth + AES + 签名）
+│   ├── taobao_webhook.py        # 淘宝消息推送 FastAPI 服务（8002 + 坐席确认队列）
+│   ├── mock_taobao.py           # 淘宝消息推送 Mock
+│   ├── rag/                     # 完整 RAG 包
+│   │   ├── chunking.py          #   语义分块
+│   │   ├── embedding.py         #   BGE 向量化（可降级）
+│   │   ├── bm25.py              #   BM25 关键词检索
+│   │   ├── vector_store.py      #   ChromaDB 封装
+│   │   ├── reranker.py          #   bge-reranker 精排
+│   │   ├── pipeline.py          #   混合检索 + RRF 融合
+│   │   └── indexer.py           #   索引构建（backend 自动重建）
 │   ├── ecommerce/
-│   │   ├── agents.py        # 6 Agent 定义 + handoff 关系
-│   │   ├── context.py       # ECommerceAgentContext 共享状态
-│   │   ├── tools.py         # 12 个工具函数
-│   │   ├── demo_data.py     # 模拟商品/订单/物流/优惠券/政策
-│   │   └── guardrails.py    # 内容相关性 + 越狱检测
+│   │   ├── agents.py            # 6 Agent 定义 + handoff 关系
+│   │   ├── context.py           # ECommerceAgentContext 共享状态
+│   │   ├── tools.py             # 13 个业务工具函数（含 RAG 接入）
+│   │   ├── demo_data.py         # 模拟商品/订单/物流/优惠券/政策
+│   │   └── guardrails.py        # 4 个 Guardrail（输入 + 输出安全护栏）
 │   ├── data/
-│   │   └── chroma_db/       # ChromaDB 向量存储（RAG 用）
-│   ├── .env                 # API Key 配置
-│   └── requirements.txt     # Python 依赖
+│   │   ├── models/              # BGE 模型（本地，bind mount 挂载）
+│   │   ├── chroma_rag/          # ChromaDB 向量库
+│   │   ├── eval/                # 评测数据集 + 结果 JSON
+│   │   └── knowledge.db         # SQLite 知识库
+│   ├── .env                     # API Key 配置
+│   ├── Dockerfile               # 容器化（CPU torch + 国内源）
+│   └── requirements.txt         # Python 依赖
 ├── ui/
 │   ├── app/
-│   │   ├── page.tsx         # 主页面：双面板布局
-│   │   ├── layout.tsx       # 根布局
-│   │   └── globals.css      # 全局样式
+│   │   ├── page.tsx             # 主页面：双面板布局
+│   │   ├── layout.tsx           # 根布局
+│   │   └── globals.css          # 全局样式
 │   ├── components/
-│   │   ├── chat-panel.tsx   # 自研聊天组件
-│   │   ├── agent-panel.tsx  # Agent 监控面板
-│   │   ├── agents-list.tsx  # Agent 卡片网格
-│   │   ├── runner-output.tsx# 运行日志
-│   │   ├── conversation-context.tsx # 上下文显示
-│   │   ├── guardrails.tsx   # 安全护栏面板
-│   │   └── ui/              # shadcn/ui 组件
+│   │   ├── chat-panel.tsx       # 自研聊天组件
+│   │   ├── agent-panel.tsx      # Agent 监控面板
+│   │   ├── agents-list.tsx      # Agent 卡片网格
+│   │   ├── runner-output.tsx    # 运行日志
+│   │   ├── conversation-context.tsx  # 上下文显示
+│   │   ├── guardrails.tsx       # 安全护栏面板
+│   │   └── ui/                  # shadcn/ui 组件
 │   ├── lib/
-│   │   ├── api.ts           # API 调用封装
-│   │   ├── types.ts        # TypeScript 类型
-│   │   └── utils.ts         # 工具函数
-│   ├── next.config.mjs      # Next.js 配置（/api/* 代理）
+│   │   ├── api.ts               # API 调用封装
+│   │   ├── types.ts             # TypeScript 类型
+│   │   └── utils.ts             # 工具函数
+│   ├── next.config.mjs          # Next.js 配置（/api/* 代理）
 │   └── package.json
-├── daily-briefing/          # 每日前沿技术简报
-└── README.md                # 项目说明
+├── docs/
+│   ├── screenshots/             # 13 张核心流程截图
+│   └── 演示实录总览.html
+├── docker-compose.yml           # 一键编排 + 模型卷挂载
+├── 抖音接入方案.md              # 抖店开放平台接入设计 + Mock 联调
+├── 淘宝接入方案.md              # 淘宝 TOP API 接入设计 + Mock 联调
+├── DESIGN.md                    # 本文件
+├── 技术方案文档.md              # 技术实现方案
+├── 需求分析文档.md              # 业务场景分析
+├── 分流评测报告.md              # Triage 98.75% 评测过程
+├── RAG检索评测报告.md           # RAG 检索评测过程
+├── 评测数据集选型与落地方案.md  # 评测数据集选型思路
+├── README.md                    # 项目门面
+└── LICENSE                      # MIT License（基于 openai/openai-cs-agents-demo）
 ```

@@ -1,6 +1,6 @@
-# RAG 技术栈说明（简历素材 + 面试准备）
+# RAG 技术栈说明
 
-> 本文档是「完整 RAG 技术栈」落地的说明，既是项目技术文档，也是简历「架构叙事」与面试追问的素材来源。
+> 本文档是「完整 RAG 技术栈」落地的说明，介绍文档解析、分块、Embedding、混合检索、重排、Agent 工具接入的端到端方案。
 
 ## 一、架构总览
 
@@ -64,10 +64,10 @@ cd python-backend
 
 `mcp_server.py` 用 FastMCP 把知识库检索 / 订单查询封装为**标准化 MCP 工具**，实现「工具层与 Agent 编排解耦、可复用」。任何 MCP 客户端（Claude Desktop、其他 Agent 框架）都能通过统一协议调用，无需关心底层是向量库还是 SQLite。
 
-## 六、简历映射（架构叙事）
+## 六、模块在系统中的位置
 
 **RAG 模块：**
-> 针对电商客服知识库「关键词匹配召回不全、无引用溯源」的痛点，构建完整 RAG 检索管线：文档解析 → 语义分块 → BGE-small-zh 向量化 + ChromaDB 存储 → BM25+向量混合检索（RRF 融合）→ bge-reranker 交叉编码器重排，检索结果携带来源元数据支持溯源；各层可插拔、可降级，保障链路稳定。
+> 电商客服知识库完整 RAG 检索管线：文档解析 → 语义分块 → BGE-small-zh 向量化 + ChromaDB 存储 → BM25+向量混合检索（RRF 融合）→ bge-reranker 交叉编码器重排，检索结果携带来源元数据支持溯源；各层可插拔、可降级，保障链路稳定。
 
 **MCP 模块：**
 > 用 FastMCP 将知识库检索 / 订单查询封装为标准化 MCP Server，Agent 通过 MCP 协议统一调用，实现工具层与编排层解耦、跨框架复用。
@@ -89,7 +89,7 @@ cd python-backend
 | Agent 工具接入 | ✅ 已修复 | rag_search/knowledge_search 已接完整 RAG，server.py 移除失效 agent 引用 |
 | Docker | ✅ 通过 | 镜像 2.6GB（CPU torch，无 CUDA 依赖），容器 `healthy`，`/health` 返回正常 |
 
-**Docker 落地的三个关键决策（面试可讲）：**
+**Docker 落地的三个关键决策：**
 1. **镜像加速器**：国内直连 Docker Hub 超时，配置 registry-mirror（DaoCloud 等 3 源）+ 基础镜像走 DaoCloud，构建 22s 拉取完成。
 2. **CPU 版 torch**：Linux 上 `torch` 默认 CUDA 版会拉 2GB+ 的 nvidia 依赖，改为先装 CPU 版（191MB），镜像从 ~6GB 压到 2.6GB，契合轻量化定位。
 3. **pip 国内源**：`PIP_INDEX_URL` 指向清华源，依赖下载稳定 6-8MB/s。
