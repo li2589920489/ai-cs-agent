@@ -34,5 +34,20 @@ jobs:
         run: python -m compileall -q .
 
       # smoke 测试：/health + 鉴权用例跑通；LLM/RAG 用例因无 API key / 无本地模型自动 skip
+      #
+      # 为什么失败时要冒泡成 ::error:: annotation：下载 job 日志需要仓库 admin 权限
+      # （GET /actions/jobs/{id}/logs 免鉴权返回 403），而 check-runs 的 annotations
+      # 对公开仓库免鉴权可读。把关键行转成 annotation 后，无需登录即可定位失败原因。
       - name: Run smoke tests
-        run: pytest tests/ -v
+        run: |
+          set +e
+          python -m pytest tests/ -v --tb=short 2>&1 | tee /tmp/pytest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::pytest 退出码 $status（1=用例失败｜2=收集中断或内部错误｜4=用法错误｜5=未收集到用例）"
+            grep -aE "^(ERROR|FAILED|E   )|ModuleNotFoundError|ImportError|RuntimeError|AttributeError|TypeError|SystemExit|Traceback" /tmp/pytest.log \
+              | head -8 \
+              | sed -e 's/%/%25/g' -e 's/\r//g' \
+              | while IFS= read -r line; do echo "::error::$line"; done
+          fi
+          exit "$status"
