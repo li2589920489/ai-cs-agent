@@ -1,0 +1,106 @@
+{
+  "data_source": {
+    "path": "D:\\下载应用\\个人ai训练中心\\ai-cs-agent\\python-backend\\data\\eval\\ecom_retrieval\\corpus.parquet",
+    "raw_total": 100902,
+    "dataset": "C-MTEB/EcomRetrieval (真实淘宝商品 query-corpus 检索基准)"
+  },
+  "cleaning": {
+    "raw_count": 100902,
+    "after_drop_empty": 100902,
+    "dropped_empty": 0,
+    "after_dedup": 100902,
+    "dropped_duplicate": 0,
+    "after_length_filter": 98182,
+    "dropped_by_length": 2720,
+    "filtered_by_blocklist": 349,
+    "after_blocklist_filter": 97833,
+    "after_classify": 52273,
+    "min_len": 10,
+    "max_len": 60
+  },
+  "blocklist_filter": {
+    "pattern": "印度神油|成人用品|情趣用品|催情|迷药|春药|伟哥|壮阳|延时喷剂|增粗|增大膏|燃脂|减肥(药|茶|贴|腰带|果|代餐)|排毒|瘦身|瘦腿|瘦脸|丰胸|消脂|泻药",
+    "filtered_count": 349,
+    "filtered_samples": [
+      {
+        "id": "404",
+        "text": "五子衔宗丸锁阳治疗早泄男用不持久补肾壮阳药肾虚阳委中药调理LX"
+      },
+      {
+        "id": "734",
+        "text": "独爱印度神油勃源氏XXL按摩膏男性外用按摩精油成人用品"
+      },
+      {
+        "id": "880",
+        "text": "跑步减脂  快、 健康的跑步瘦身法  IDEA年度教练奖得主带你突破平台期 轻松跑出傲人身材 北京科学技术出版社"
+      },
+      {
+        "id": "1113",
+        "text": "减肥瘦身腰带甩脂机瘦肚子神器震动按摩腰部热敷震脂带艾灸暖宫带"
+      },
+      {
+        "id": "1167",
+        "text": "减肥可以喝的饮料适合减肥喝的茶减肥果汁30倍浓缩柠檬百香蜂蜜茶"
+      },
+      {
+        "id": "1201",
+        "text": "男用仿真皮肤倒模自慰器日本熟女双通道男生专用高潮神器成人用品"
+      },
+      {
+        "id": "1220",
+        "text": "同仁堂泡脚包去湿气排毒瘦身减肥包燃脂排油调理宫寒助睡眠足浴丸"
+      },
+      {
+        "id": "1711",
+        "text": "李宁盆底肌训练神器产后恢复瘦腿收胯器材臀部锻炼美腿夹修复漏尿"
+      },
+      {
+        "id": "1891",
+        "text": "方好敷减肥腰带光子理疗腰带腿带新款精油排湿驱寒暖宫美容院正品"
+      },
+      {
+        "id": "2385",
+        "text": "BBA智能懒人塑腰带 收腹燃脂美国EMS生物电脉冲甩脂按摩仪"
+      }
+    ]
+  },
+  "classification": {
+    "by_category_after_classify": {
+      "零食": 19813,
+      "家电": 13601,
+      "日用品": 18859
+    },
+    "quotas": {
+      "零食": 500,
+      "家电": 300,
+      "日用品": 500
+    }
+  },
+  "sampling": {
+    "total_sampled": 1300,
+    "by_category": {
+      "零食": 500,
+      "家电": 300,
+      "日用品": 500
+    }
+  },
+  "field_mapping_strategy": {
+    "product_id": "EC{原 id} (前缀避免与 demo P1001-P1004 冲突)",
+    "name": "原始标题",
+    "description": "原始标题 (title 拼凑是真实电商场景)",
+    "selling_points": "从标题分词提取 (强特征词)",
+    "specs": "无来源，留空 (字段缺失是真实工程常态)",
+    "faq": "无来源，留空 (字段缺失是真实工程常态)",
+    "category": "标题关键词分类 (零食/家电/日用品)，落库供概览统计与类目级检索"
+  },
+  "import": {
+    "cleanup_deleted_existing": 1300,
+    "success": 1300,
+    "failed": 0,
+    "first_errors": []
+  },
+  "knowledge_db_after": {
+    "total_products": 1305,
+    "ec_count": 1300
+  }
+}

@@ -49,7 +49,7 @@ def search_knowledge(query: str, k: int = 3) -> str:
         query: 用户问题或查询关键词
         k: 返回条数，默认 3
     """
-    results = _get_pipeline().search(query, k=k, use_hybrid=True, use_rerank=True)
+    results = _get_pipeline().search(query, k=k, use_hybrid=False, use_rerank=True)
     if not results:
         return "未检索到相关知识。"
     parts = []
@@ -63,7 +63,7 @@ def search_knowledge(query: str, k: int = 3) -> str:
 @mcp.tool()
 def search_policy(query: str, k: int = 3) -> str:
     """仅检索店铺政策（退货/退款/发货/物流/优惠券/会员等），返回政策原文片段。"""
-    results = _get_pipeline().search(query, k=max(k, 6), use_hybrid=True, use_rerank=True)
+    results = _get_pipeline().search(query, k=max(k, 6), use_hybrid=False, use_rerank=True)
     policies = [r for r in results if r.get("metadata", {}).get("type") == "policy"][:k]
     if not policies:
         return "未检索到相关店铺政策。"

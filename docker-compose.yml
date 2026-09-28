@@ -1,19 +1,19 @@
-# 电商客服 AI 智能体 — 一键编排
+# 电商客服 AI 智能体 — 一键编排（frontend + backend + nginx）
 # 用法：在项目根目录执行  docker compose up -d --build
+# 访问：http://localhost （nginx:80 统一入口）
 services:
   backend:
     build:
       context: ./python-backend
     container_name: ecommerce-cs-backend
     ports:
-      - "8000:8000"
+      - "8000:8000"   # 调试用直连；生产由 nginx 反代，可关闭
+    env_file:
+      - ./python-backend/.env   # 复用后端 .env（OPENAI_API_KEY / OPENAI_BASE_URL）
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
-      - CHROMA_PERSIST_DIR=/app/data/chroma_rag
-      - ENVIRONMENT=production
+      - ENVIRONMENT=production   # 覆盖 .env 的 development
     volumes:
-      # 向量库 + 知识库持久化到本地卷
+      # 向量库 + 知识库 + 鉴权库持久化到本地卷
       - rag_data:/app/data
       # BGE 模型文件（本地 bind mount，只读，避免镜像臃肿）
       - ./python-backend/data/models:/app/data/models:ro
@@ -23,6 +23,31 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  frontend:
+    build:
+      context: ./ui
+      # 前端鉴权凭据在构建期注入（.dockerignore 已排除 .env*）
+      # 值取自根目录 .env 或 shell 环境，与 python-backend/.env 保持一致
+      args:
+        NEXT_PUBLIC_TENANT_API_KEY: ${NEXT_PUBLIC_TENANT_API_KEY:-}
+        NEXT_PUBLIC_AGENT_API_KEY: ${NEXT_PUBLIC_AGENT_API_KEY:-}
+    container_name: ecommerce-cs-frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  nginx:
+    image: docker.m.daocloud.io/library/nginx:1.27-alpine
+    container_name: ecommerce-cs-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
 
 volumes:
   rag_data:

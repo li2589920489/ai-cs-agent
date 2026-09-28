@@ -61,7 +61,9 @@ class Embedder:
                 self._model = SentenceTransformer(self._resolve_model(), device=self.device)
                 self._use_bge = True
             except Exception as exc:  # noqa: BLE001
-                print(f"[RAG] 本地 BGE 模型加载失败（{exc}），降级为 Chroma 默认 embedding")
+                # BGE 本地模型加载失败时，最后兜底到 chromadb 自带 ONNX 模型。
+                # 注：本项目已迁移到纯 numpy 后端，正常情况下 bge 本地模型一直可用，
+                # 这条 fallback 仅作极端情况下的兜底（chromadb 1.x 装了才能用）。
                 try:
                     from chromadb.utils import embedding_functions
 

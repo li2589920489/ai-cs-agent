@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Headset, User, Clock, CheckCircle2, XCircle, Send, Package } from "lucide-react";
+import { Headset, User, Clock, CheckCircle2, XCircle, Send, Package, AlertTriangle } from "lucide-react";
+import { apiFetch, authErrorMessage } from "@/lib/api";
 
 type Message = {
   role: "user" | "agent";
@@ -28,17 +29,20 @@ export function AgentWorkspace() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const selected = tickets.find((t) => t.id === selectedId) || null;
 
   const loadTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/escalations");
+      const res = await apiFetch("/api/escalations", "agent");
       const data = await res.json();
       setTickets(data.tickets || []);
+      setError(null);
     } catch (err) {
       console.error("加载工单失败", err);
+      setError(authErrorMessage(err, "agent"));
     } finally {
       setLoading(false);
     }
@@ -46,7 +50,7 @@ export function AgentWorkspace() {
 
   const loadMessages = useCallback(async (ticketId: string) => {
     try {
-      const res = await fetch(`/api/escalations/${ticketId}/messages`);
+      const res = await apiFetch(`/api/escalations/${ticketId}/messages`, "agent");
       const data = await res.json();
       setMessages(data.messages || []);
     } catch (err) {
@@ -74,33 +78,58 @@ export function AgentWorkspace() {
   }, [messages]);
 
   const handleAccept = async (ticket: Ticket) => {
-    await fetch(`/api/escalations/${ticket.id}/accept`, { method: "POST" });
-    setSelectedId(ticket.id);
-    loadTickets();
+    try {
+      await apiFetch(`/api/escalations/${ticket.id}/accept`, "agent", { method: "POST" });
+      setSelectedId(ticket.id);
+      setError(null);
+      loadTickets();
+    } catch (err) {
+      console.error("接入工单失败", err);
+      setError(authErrorMessage(err, "agent"));
+    }
   };
 
   const handleReply = async () => {
     if (!input.trim() || !selected) return;
-    await fetch(`/api/escalations/${selected.id}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: input.trim() }),
-    });
-    setInput("");
-    loadMessages(selected.id);
+    try {
+      await apiFetch(`/api/escalations/${selected.id}/reply`, "agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: input.trim() }),
+      });
+      setInput("");
+      setError(null);
+      loadMessages(selected.id);
+    } catch (err) {
+      console.error("回复失败", err);
+      setError(authErrorMessage(err, "agent"));
+    }
   };
 
   const handleClose = async () => {
     if (!selected) return;
     if (!confirm("确定关闭该工单？")) return;
-    await fetch(`/api/escalations/${selected.id}/close`, { method: "POST" });
-    setSelectedId(null);
-    setMessages([]);
-    loadTickets();
+    try {
+      await apiFetch(`/api/escalations/${selected.id}/close`, "agent", { method: "POST" });
+      setSelectedId(null);
+      setMessages([]);
+      setError(null);
+      loadTickets();
+    } catch (err) {
+      console.error("关闭工单失败", err);
+      setError(authErrorMessage(err, "agent"));
+    }
   };
 
   return (
-    <div className="flex h-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="flex flex-col h-full">
+      {error && (
+        <div className="mb-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 shrink-0">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+      <div className="flex flex-1 min-h-0 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
       {/* 左侧：工单列表 */}
       <div className="w-[38%] border-r border-gray-200 flex flex-col">
         <div className="bg-orange-500 text-white h-12 px-4 flex items-center shrink-0">
@@ -259,6 +288,7 @@ export function AgentWorkspace() {
             )}
           </>
         )}
+      </div>
       </div>
     </div>
   );

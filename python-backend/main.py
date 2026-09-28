@@ -1,21 +1,42 @@
 """电商客服AI智能体 — 淘宝风格多Agent客服系统入口"""
 
+import asyncio
 import os
 import time
 import csv
 import io
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict
 
-from fastapi import FastAPI, Request, File, UploadFile
+from fastapi import Depends, FastAPI, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from chat_service import run_chat
+from chat_service import run_chat, reset_session_escalation
 import knowledge_store
+import order_store
 import doc_importer
+import auth
+from auth import get_current_tenant, require_agent_role
+# 知识库写入后标记检索管线过期：单例在下次取用时按知识库指纹决定是否重建索引
+from rag import mark_pipeline_stale, warmup
 
-app = FastAPI(title="AI电商客服智能体", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动期预热 RAG 管线（embedding + reranker + 索引）。
+
+    为什么放这里：模型加载与索引重建约 27s，若等首个请求才做，会同步阻塞事件循环
+    （单进程 uvicorn 下卡住所有并发请求），实测首个请求要 70.9s。
+    lifespan 完成前 uvicorn 不接受请求 —— 用「启动慢 27s」换「每个请求都快」。
+    用 to_thread 是必须的：warmup 内部是同步的重 CPU/IO 操作，直接在事件循环里跑会卡住 loop。
+    """
+    await asyncio.to_thread(warmup)
+    yield
+
+
+app = FastAPI(title="AI电商客服智能体", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:3000")],
@@ -24,6 +45,15 @@ app.add_middleware(
 
 # 初始化商品知识库（首次启动自动建表+灌入默认数据）
 knowledge_store.init_knowledge_store()
+# 初始化订单/退货状态库（首次启动自动建表+灌入演示订单）
+# 订单与退货单的权威数据源落在 SQLite，Context 只作展示缓存（决策 D7）
+order_store.init_order_store()
+# 初始化租户鉴权存储（首次启动自动建 tenants 表）
+auth.init_auth_store()
+# 从环境变量幂等 seed 内置凭据：default 租户（知识库面板）/ agent 坐席（坐席工作台）
+# 环境变量为凭据唯一事实源，未配置则跳过（不阻断启动）
+for _seed in auth.ensure_seed_tenants():
+    print(f"[auth] seed tenant '{_seed['tenant_id']}': {_seed['action']}")
 
 
 @app.get("/health")
@@ -154,8 +184,16 @@ async def api_chat(req: ChatRequest, request: Request):
 
     # 记录转接工单
     if state.escalation_flag:
+        ticket_id = f"TKT-{int(time.time()) % 100000:05d}"
+        # 把触发转人工的这一轮买家消息也写进 ticket.messages，避免坐席看不到
+        # 「买家为什么要转人工」的原始诉求（之前 messages=[] 是空，坐席端只看到
+        # 后续 buyer 在 manual pool 里发送的消息，丢掉了首条触发消息）。
+        buyer_first_msg = {
+            "role": "user", "content": msg,
+            "time": datetime.now().isoformat(timespec="seconds"),
+        }
         _escalation_tickets.insert(0, {
-            "id": f"TKT-{int(time.time()) % 100000:05d}",
+            "id": ticket_id,
             "session_id": session_id,
             "reason": state.escalation_reason or "用户请求人工",
             "order_number": state.order_number or "",
@@ -164,8 +202,14 @@ async def api_chat(req: ChatRequest, request: Request):
             "product_name": state.product_name or "",
             "created_at": datetime.now().isoformat(),
             "status": "pending",
-            "messages": [],
+            "messages": [buyer_first_msg],
         })
+        # P0 fix：工单一创建，立即把 session 写入静音池。
+        # 之后该 session 的任何用户消息都直接 hardcoded reply「您已接入…坐席将尽快回复」，
+        # 不再走 Agent，避免 LLM 在 escalation agent 上反复二次回答造成「重复回答」。
+        # accept 只是把 pending → processing，不影响 session 静音状态（close 时才解除）。
+        if session_id:
+            _manual_sessions[session_id] = ticket_id
 
     return {
         "reply": result["reply"],
@@ -185,8 +229,8 @@ async def api_chat(req: ChatRequest, request: Request):
 
 
 @app.get("/api/escalations")
-async def api_escalations():
-    """返回人工接管工单列表（含待处理和处理中）"""
+async def api_escalations(_agent: str = Depends(require_agent_role)):
+    """返回人工接管工单列表（含待处理和处理中）。需坐席角色——工单含客户姓名/订单号等隐私字段。"""
     tickets = [t for t in _escalation_tickets if t["status"] != "closed"]
     pending = sum(1 for t in tickets if t["status"] == "pending")
     return {"tickets": tickets, "total": len(tickets), "pending": pending}
@@ -197,8 +241,8 @@ class ReplyRequest(BaseModel):
 
 
 @app.post("/api/escalations/{ticket_id}/accept")
-async def api_accept_ticket(ticket_id: str):
-    """坐席接入工单，标记处理中并绑定会话"""
+async def api_accept_ticket(ticket_id: str, _agent: str = Depends(require_agent_role)):
+    """坐席接入工单，标记处理中并绑定会话（需坐席角色）"""
     ticket = next((t for t in _escalation_tickets if t["id"] == ticket_id), None)
     if not ticket:
         return {"error": "工单不存在"}
@@ -210,8 +254,8 @@ async def api_accept_ticket(ticket_id: str):
 
 
 @app.get("/api/escalations/{ticket_id}/messages")
-async def api_ticket_messages(ticket_id: str):
-    """获取工单的对话记录"""
+async def api_ticket_messages(ticket_id: str, _agent: str = Depends(require_agent_role)):
+    """获取工单的对话记录。需坐席角色——ticket_id 可枚举，不鉴权即可读任意工单会话。"""
     ticket = next((t for t in _escalation_tickets if t["id"] == ticket_id), None)
     if not ticket:
         return {"error": "工单不存在", "messages": []}
@@ -219,8 +263,8 @@ async def api_ticket_messages(ticket_id: str):
 
 
 @app.post("/api/escalations/{ticket_id}/reply")
-async def api_ticket_reply(ticket_id: str, req: ReplyRequest):
-    """坐席回复买家"""
+async def api_ticket_reply(ticket_id: str, req: ReplyRequest, _agent: str = Depends(require_agent_role)):
+    """坐席回复买家（需坐席角色）"""
     ticket = next((t for t in _escalation_tickets if t["id"] == ticket_id), None)
     if not ticket:
         return {"error": "工单不存在"}
@@ -235,14 +279,17 @@ async def api_ticket_reply(ticket_id: str, req: ReplyRequest):
 
 
 @app.post("/api/escalations/{ticket_id}/close")
-async def api_close_ticket(ticket_id: str):
-    """坐席关闭工单"""
+async def api_close_ticket(ticket_id: str, _agent: str = Depends(require_agent_role)):
+    """坐席关闭工单（需坐席角色）"""
     ticket = next((t for t in _escalation_tickets if t["id"] == ticket_id), None)
     if not ticket:
         return {"error": "工单不存在"}
     ticket["status"] = "closed"
-    if ticket.get("session_id"):
-        _manual_sessions.pop(ticket["session_id"], None)
+    session_id = ticket.get("session_id")
+    if session_id:
+        _manual_sessions.pop(session_id, None)
+        # 重置会话转人工标记，否则买家继续发消息会因 escalation_flag=true 再次触发转人工
+        reset_session_escalation(session_id)
     return {"ticket": ticket}
 
 
@@ -252,7 +299,7 @@ async def api_chat_poll(session_id: str):
     # 按 session_id 直接匹配工单（不依赖坐席是否已接入），
     # 这样转人工后买家即可持续轮询，坐席回复后实时可见，工单关闭后停止。
     ticket = next((t for t in _escalation_tickets if t.get("session_id") == session_id), None)
-    if not ticket:
+    if not ticket or ticket["status"] == "closed":
         return {"manual": False, "messages": []}
     agent_msgs = [m for m in ticket.get("messages", []) if m["role"] == "agent"]
     return {"manual": True, "messages": agent_msgs, "ticket_status": ticket["status"]}
@@ -267,47 +314,72 @@ class KnowledgeItem(BaseModel):
     selling_points: list[str] = []
     specs: list[str] = []
     faq: list[str] = []
+    category: str = ""
 
 
 @app.get("/api/knowledge")
-async def api_knowledge_list(tenant_id: str = "default"):
+async def api_knowledge_list(tenant_id: str = Depends(get_current_tenant)):
     """商品知识库列表"""
     items = knowledge_store.list_knowledge(tenant_id)
     return {"items": items, "total": len(items)}
 
 
 @app.post("/api/knowledge")
-async def api_knowledge_create(item: KnowledgeItem, tenant_id: str = "default"):
+async def api_knowledge_create(item: KnowledgeItem, tenant_id: str = Depends(get_current_tenant)):
     """新增商品知识"""
     created = knowledge_store.create_knowledge(item.model_dump(), tenant_id)
+    mark_pipeline_stale()  # 新知识需在下次检索时进入向量索引
     return {"item": created}
 
 
 @app.put("/api/knowledge/{knowledge_id}")
-async def api_knowledge_update(knowledge_id: int, item: KnowledgeItem, tenant_id: str = "default"):
+async def api_knowledge_update(knowledge_id: int, item: KnowledgeItem, tenant_id: str = Depends(get_current_tenant)):
     """更新商品知识"""
     updated = knowledge_store.update_knowledge(knowledge_id, item.model_dump(), tenant_id)
     if updated is None:
         return {"error": "未找到该知识条目"}
+    mark_pipeline_stale()
     return {"item": updated}
 
 
 @app.delete("/api/knowledge/{knowledge_id}")
-async def api_knowledge_delete(knowledge_id: int, tenant_id: str = "default"):
+async def api_knowledge_delete(knowledge_id: int, tenant_id: str = Depends(get_current_tenant)):
     """删除商品知识"""
     deleted = knowledge_store.delete_knowledge(knowledge_id, tenant_id)
+    if deleted:
+        mark_pipeline_stale()
     return {"deleted": deleted}
 
 
 @app.get("/api/knowledge/search")
-async def api_knowledge_search(q: str, tenant_id: str = "default"):
+async def api_knowledge_search(q: str, tenant_id: str = Depends(get_current_tenant)):
     """搜索商品知识"""
     items = knowledge_store.search_knowledge(q, tenant_id)
     return {"items": items, "total": len(items)}
 
 
+@app.post("/api/knowledge/reindex")
+async def api_knowledge_reindex(tenant_id: str = Depends(get_current_tenant)):
+    """重建 RAG 向量索引，使新增/导入的知识立即可被检索。
+
+    全量重建需要重新向量化全部 chunk，属重活，因此不放进 CRUD 请求里同步执行：
+    CRUD 只把检索管线标记为过期，由下次检索按知识库指纹自动重建；
+    本接口用于需要「立刻生效」的场景（如批量导入后）。
+    """
+    from rag import build_index, reset_pipeline
+
+    pipeline = build_index(reset=True)
+    reset_pipeline()  # 丢弃旧单例，下次取用时加载刚建好的索引
+    return {
+        "status": "reindexed",
+        "chunks": pipeline.vector_store.count(),
+        "embedding_backend": pipeline.embedder.backend,
+        "knowledge_sig": knowledge_store.knowledge_signature(tenant_id),
+    }
+
+
 @app.post("/api/knowledge/import")
-async def api_knowledge_import(file: UploadFile = File(...), tenant_id: str = "default"):
+async def api_knowledge_import(file: UploadFile = File(...), tenant_id: str = Depends(get_current_tenant)):
     """批量导入 CSV 商品知识"""
     # 读取并解码（utf-8-sig 兼容 Excel 导出的 BOM）
     raw = await file.read()
@@ -326,6 +398,7 @@ async def api_knowledge_import(file: UploadFile = File(...), tenant_id: str = "d
         "selling_points": "selling_points", "卖点": "selling_points",
         "specs": "specs", "规格": "specs",
         "faq": "faq", "常见问题": "faq", "FAQ": "faq", "问答": "faq",
+        "category": "category", "类目": "category", "分类": "category",
     }
 
     items: list[dict] = []
@@ -346,11 +419,13 @@ async def api_knowledge_import(file: UploadFile = File(...), tenant_id: str = "d
         return {"error": "CSV 内容为空或表头不匹配", "success": 0, "failed": 0}
 
     result = knowledge_store.bulk_import(items, tenant_id)
+    if result.get("success"):
+        mark_pipeline_stale()  # 批量导入的新知识需进入向量索引
     return result
 
 
 @app.post("/api/knowledge/import-doc")
-async def api_knowledge_import_doc(file: UploadFile = File(...), tenant_id: str = "default"):
+async def api_knowledge_import_doc(file: UploadFile = File(...), tenant_id: str = Depends(get_current_tenant)):
     """导入文档（PDF/Word/TXT），用 LLM 提取商品知识后入库"""
     content = await file.read()
     text = doc_importer.extract_text(file.filename or "", content)
@@ -385,5 +460,7 @@ async def api_knowledge_import_doc(file: UploadFile = File(...), tenant_id: str 
         return {"error": "提取到的商品知识缺少商品名称", "success": 0, "failed": 0}
 
     result = knowledge_store.bulk_import(normalized, tenant_id)
+    if result.get("success"):
+        mark_pipeline_stale()  # 文档抽取的新知识需进入向量索引
     result["extracted_text_len"] = len(text)
     return result

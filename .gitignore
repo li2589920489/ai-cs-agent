@@ -102,6 +102,8 @@ celerybeat.pid
 
 # Environments
 .env
+# 本地环境变量文件（含前端鉴权凭据，仅 .env.example 入仓）
+.env*.local
 *.venv*
 env/
 venv/
@@ -138,5 +140,7 @@ python-backend/data/models/
 python-backend/data/eval/
 python-backend/data/chroma_rag/
 python-backend/data/knowledge.db
+python-backend/data/auth.db
+python-backend/data/orders.db
 python-backend/data/*.log
 python-backend/data/__pycache__/

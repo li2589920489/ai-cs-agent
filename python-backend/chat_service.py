@@ -58,6 +58,20 @@ def _cleanup_sessions() -> None:
         del _sessions[sid]
 
 
+def reset_session_escalation(session_id: str | None) -> bool:
+    """关闭工单后重置会话的转人工标记，允许买家继续与 AI 对话。"""
+    if not session_id:
+        return False
+    entry = _sessions.get(session_id)
+    if not entry:
+        return False
+    state = entry[0]
+    state.escalation_flag = False
+    state.escalation_reason = None
+    _sessions[session_id] = (state, time.time())
+    return True
+
+
 async def run_chat(msg: str, session_id: str | None = None) -> dict:
     """核心聊天逻辑：消息 → Triage 分流 → 业务 Agent → 回复 + trace + 转人工标记。
 

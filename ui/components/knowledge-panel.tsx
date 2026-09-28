@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Plus, Pencil, Trash2, Database, X, Loader2, FileUp } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Database, X, Loader2, FileUp, AlertTriangle } from "lucide-react";
+import { apiFetch, authErrorMessage } from "@/lib/api";
 
 type KnowledgeItem = {
   id: number;
@@ -11,6 +12,7 @@ type KnowledgeItem = {
   selling_points: string[];
   specs: string[];
   faq: string[];
+  category?: string;
 };
 
 type FormState = {
@@ -20,6 +22,7 @@ type FormState = {
   selling_points: string;
   specs: string;
   faq: string;
+  category: string;
 };
 
 const emptyForm: FormState = {
@@ -29,6 +32,7 @@ const emptyForm: FormState = {
   selling_points: "",
   specs: "",
   faq: "",
+  category: "",
 };
 
 export function KnowledgePanel() {
@@ -41,6 +45,7 @@ export function KnowledgePanel() {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importingDoc, setImportingDoc] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -50,11 +55,13 @@ export function KnowledgePanel() {
       const url = q
         ? `/api/knowledge/search?q=${encodeURIComponent(q)}`
         : "/api/knowledge";
-      const res = await fetch(url);
+      const res = await apiFetch(url, "tenant");
       const data = await res.json();
       setItems(data.items || []);
+      setError(null);
     } catch (err) {
       console.error("加载知识库失败", err);
+      setError(authErrorMessage(err, "tenant"));
     } finally {
       setLoading(false);
     }
@@ -83,6 +90,7 @@ export function KnowledgePanel() {
       selling_points: item.selling_points.join("\n"),
       specs: item.specs.join("\n"),
       faq: item.faq.join("\n"),
+      category: item.category || "",
     });
     setShowForm(true);
   };
@@ -101,19 +109,21 @@ export function KnowledgePanel() {
         selling_points: form.selling_points.split("\n").filter((s) => s.trim()),
         specs: form.specs.split("\n").filter((s) => s.trim()),
         faq: form.faq.split("\n").filter((s) => s.trim()),
+        category: form.category.trim(),
       };
       const url = editing ? `/api/knowledge/${editing.id}` : "/api/knowledge";
       const method = editing ? "PUT" : "POST";
-      const res = await fetch(url, {
+      await apiFetch(url, "tenant", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("保存失败");
       setShowForm(false);
+      setError(null);
       loadItems();
     } catch (err) {
-      alert("保存失败，请重试");
+      console.error("保存知识失败", err);
+      alert(authErrorMessage(err, "tenant"));
     } finally {
       setSaving(false);
     }
@@ -122,10 +132,12 @@ export function KnowledgePanel() {
   const handleDelete = async (item: KnowledgeItem) => {
     if (!confirm(`确定删除「${item.name}」的知识吗？`)) return;
     try {
-      await fetch(`/api/knowledge/${item.id}`, { method: "DELETE" });
+      await apiFetch(`/api/knowledge/${item.id}`, "tenant", { method: "DELETE" });
+      setError(null);
       loadItems();
     } catch (err) {
-      alert("删除失败");
+      console.error("删除知识失败", err);
+      alert(authErrorMessage(err, "tenant"));
     }
   };
 
@@ -136,7 +148,7 @@ export function KnowledgePanel() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/knowledge/import", {
+      const res = await apiFetch("/api/knowledge/import", "tenant", {
         method: "POST",
         body: formData,
       });
@@ -148,10 +160,12 @@ export function KnowledgePanel() {
           ? `\n跳过 ${data.errors.length} 行：\n${data.errors.slice(0, 5).join("\n")}`
           : "";
         alert(`导入完成：成功 ${data.success} 条，失败 ${data.failed} 条${errMsg}`);
+        setError(null);
         loadItems();
       }
     } catch (err) {
-      alert("导入失败，请检查文件格式");
+      console.error("CSV 导入失败", err);
+      alert(authErrorMessage(err, "tenant"));
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -165,7 +179,7 @@ export function KnowledgePanel() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/knowledge/import-doc", {
+      const res = await apiFetch("/api/knowledge/import-doc", "tenant", {
         method: "POST",
         body: formData,
       });
@@ -177,10 +191,12 @@ export function KnowledgePanel() {
           ? `\n跳过 ${data.errors.length} 条：\n${data.errors.slice(0, 5).join("\n")}`
           : "";
         alert(`文档导入完成：成功提取 ${data.success} 条商品知识${errMsg}`);
+        setError(null);
         loadItems();
       }
     } catch (err) {
-      alert("文档导入失败，请重试");
+      console.error("文档导入失败", err);
+      alert(authErrorMessage(err, "tenant"));
     } finally {
       setImportingDoc(false);
       if (docFileInputRef.current) docFileInputRef.current.value = "";
@@ -197,6 +213,13 @@ export function KnowledgePanel() {
           运营视角 · 共 {items.length} 条
         </span>
       </div>
+
+      {error && (
+        <div className="flex items-start gap-2 border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* 工具栏 */}
       <div className="flex gap-2 p-3 border-b border-gray-100">
@@ -290,6 +313,11 @@ export function KnowledgePanel() {
                         {item.product_id}
                       </span>
                     )}
+                    {item.category && (
+                      <span className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                        {item.category}
+                      </span>
+                    )}
                   </div>
                   {item.description && (
                     <p className="text-xs text-gray-500 mt-1">{item.description}</p>
@@ -357,6 +385,15 @@ export function KnowledgePanel() {
                     onChange={(e) => setForm({ ...form, product_id: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
                     placeholder="如：P1001"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">类目</label>
+                  <input
+                    value={form.category}
+                    onChange={(e) => setForm({ ...form, category: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                    placeholder="如：零食 / 家电"
                   />
                 </div>
               </div>

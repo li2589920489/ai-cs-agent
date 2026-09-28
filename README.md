@@ -1,5 +1,7 @@
 # AI 电商客服智能体 — 多 Agent + 完整 RAG + MCP + LangGraph
 
+[![CI](https://github.com/li2589920489/ai-cs-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/li2589920489/ai-cs-agent/actions/workflows/ci.yml)
+
 <p align="center">
   <img src="docs/screenshots/demo_01_订单分流.png" width="90%" alt="AI电商客服智能体演示">
   <br>
@@ -22,14 +24,34 @@
 | **RAG 检索 MRR@10**（纯向量） | **52.1%** |
 | **RAG 检索 nDCG@10**（纯向量） | **57.6%** |
 | **Agent 数量** | **6** 个（Triage + 4 业务 + Human Escalation） |
-| **工具数量** | **13 业务工具 + 4 Guardrail + 4 MCP 工具 = 21 个 function_tool** |
+| **工具数量** | **15 个 function_tool（业务 13 + 护栏 verdict 2）+ 4 个 MCP 工具 = 19 个工具** |
 | **容器镜像大小** | **2.6 GB**（CPU 版 torch，从 6 GB 瘦身） |
+
+---
+
+## 与原示例（openai-cs-agents-demo）的差异
+
+> 本项目 Fork 自 [openai/openai-cs-agents-demo](https://github.com/openai/openai-cs-agents-demo)，**保留其 Handoff 机制与双 Input Guardrail 设计**，在此基础上补齐电商场景业务化与工程化能力。
+
+| 能力维度 | 原示例 | 本项目 |
+|---|---|---|
+| 业务场景 | 航空客服（airline） | 电商客服（ecommerce：订单/商品/售后/政策） |
+| Agent | 5（Triage + 4 业务） | 6（Triage + 4 业务 + Human Escalation 兜底） |
+| Handoff | ✅ SDK 原生 | ✅ 保留（显式 tool_name_override 规避中文名冲突） |
+| Input Guardrail | ✅ 2 个 | ✅ 保留双 Guardrail（相关性 + 越狱），改为函数式护栏 |
+| 上下文 Context | 基础字段 | 扩展至 17 字段（订单/客户/退货/商品/优惠券） |
+| RAG 检索 | ❌ 无 | ✅ 完整管线（BGE 向量 + numpy 后端 + BM25 降级 + 重排 + 溯源） |
+| MCP | ❌ 无 | ✅ FastMCP 4 工具（知识库/订单标准化） |
+| LangGraph | ❌ 无 | ✅ 售后状态机独立验证原型（未接入 Agent 主链路） |
+| 多租户 | ❌ 无 | ✅ tenant_id 字段 + 查询层过滤 + API Key 鉴权（预留迁 PostgreSQL） |
+| 评测体系 | ❌ 无 | ✅ Triage 98.75% / RAG 75.0% / Prompt 88.46% |
+| 容器化 | ❌ 无 | ✅ Docker Compose，镜像 6GB → 2.6GB |
 
 ---
 
 ## 技术栈标签
 
-`OpenAI Agents SDK` · `FastAPI` · `Next.js 15` · `DeepSeek API` · `BGE-small-zh` · `ChromaDB` · `BM25` · `RRF 融合检索` · `bge-reranker` · `FastMCP` · `LangGraph` · `SQLite（多租户）` · `Docker Compose`
+`OpenAI Agents SDK` · `FastAPI` · `Next.js 15` · `DeepSeek API` · `BGE-small-zh` · `numpy 向量库` · `bge-reranker` · `FastMCP` · `LangGraph` · `SQLite（多租户）` · `Docker Compose`
 
 ---
 
@@ -43,7 +65,6 @@
 | 分流评测 | [分流评测报告.md](分流评测报告.md) | Triage 准确率 98.75% 的评测过程 |
 | RAG 评测 | [RAG检索评测报告.md](RAG检索评测报告.md) | Recall@10 / MRR@10 的评测过程 |
 | 数据选型 | [评测数据集选型与落地方案.md](评测数据集选型与落地方案.md) | 80 条用例设计思路 |
-| 演示总览 | [docs/演示实录总览.html](docs/演示实录总览.html) | 8 个核心场景的完整演示录屏 |
 | 演示截图 | [docs/screenshots/](docs/screenshots/) | 13 张核心流程截图 |
 | 抖音接入 | [抖音接入方案.md](抖音接入方案.md) | 抖店开放平台回调接入设计 + Mock 联调 |
 | 淘宝接入 | [淘宝接入方案.md](淘宝接入方案.md) | TOP API 接入设计 + 坐席一键确认 Mock 联调 |
@@ -53,12 +74,12 @@
 ## 核心亮点
 
 1. **6 Agent 多智能体协作**：Triage 分诊 + 4 个业务 Agent + Human Escalation 兜底，handoff 接力而非简单串行。
-2. **完整 RAG 检索管线**：双路召回（向量 + BM25）+ RRF 融合 + 交叉编码器重排 + 溯源。
+2. **RAG 检索管线 + 数据驱动决策**：BGE 语义向量检索（主力）+ CrossEncoder 重排 + 溯源；BM25(jieba) 作为可插拔降级兜底组件，**不参与默认融合**——这是基于 EcomRetrieval（1000 query × 10 万 corpus）实测数据做出的取舍（混合检索 nDCG 最高 54.5% < 纯向量 57.6%）。
 3. **MCP 工具标准化**：知识库/订单能力封装为 4 个标准 MCP 工具，可跨客户端（Claude Desktop 等）复用。
 4. **LangGraph 售后状态机**：售后流程显式建模，条件路由 + 可插人工审批。
 5. **可降级工程化**：Embedding/重排失败自动降级，任何环境都能跑通。
 6. **Human-in-the-Loop**：敏感/复杂场景自动转人工，生成结构化摘要与工单。
-7. **多租户知识库**：SQLite 起步，`tenant_id` 预留迁移 PostgreSQL。
+7. **多租户知识库**：SQLite + `tenant_id` 字段 + 查询层过滤 + API Key 鉴权，预留迁移 PostgreSQL。
 8. **轻量化容器化**：CPU torch 镜像 6 GB → 2.6 GB，模型卷与容器解耦。
 
 ---
@@ -84,8 +105,9 @@
 │  └────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │  完整 RAG 管线（rag/ 包）                                │  │
-│  │  文档解析 → 分块 → BGE 向量化 → ChromaDB                 │  │
-│  │  + BM25 → 混合检索(RRF) → bge-reranker 重排 → 溯源       │  │
+│  │  文档解析 → 分块 → BGE 向量化 → numpy 向量检索        │  │
+│  │  → bge-reranker 重排 → 溯源                              │  │
+│  │  （BM25 仅作可插拔降级兜底，不参与默认融合）              │  │
 │  ├────────────────────────────────────────────────────────┤  │
 │  │  MCP Server（FastMCP） ｜ LangGraph 售后状态机           │  │
 │  └────────────────────────────────────────────────────────┘  │
@@ -106,10 +128,10 @@
 | Agent 框架 | OpenAI Agents SDK（多 Agent + handoff） |
 | 后端 | FastAPI + Uvicorn |
 | 前端 | Next.js 15 + React + TailwindCSS |
-| RAG 检索 | BGE-small-zh 向量化 + ChromaDB + BM25 + RRF 混合检索 + bge-reranker 重排 |
+| RAG 检索 | BGE-small-zh 向量化 + numpy 向量检索 + bge-reranker 重排（BM25 仅作降级兜底） |
 | MCP | FastMCP（知识库/订单查询封装为标准 MCP 工具） |
 | 编排 | LangGraph（售后流程状态机 + 条件路由） |
-| 知识库 | SQLite（多租户 tenant_id，预留迁 PostgreSQL） |
+| 知识库 | SQLite（多租户 tenant_id + API Key 鉴权，预留迁 PostgreSQL） |
 | 安全 | Input Guardrails（内容相关性 + 越狱检测） |
 | 部署 | Docker Compose（含健康检查 + 卷持久化 + 模型挂载） |
 
@@ -119,7 +141,7 @@
 
 ### 前置条件
 
-- Python 3.11+
+- Python 3.10（本地 `.venv` 3.10.11、CI `python-version: "3.10"`、生产镜像 `python:3.13-slim`）
 - Node.js 18+（前端）
 - DeepSeek API Key（或任意兼容 OpenAI 协议的模型服务）
 - Docker Desktop（可选，容器化部署用）
@@ -145,21 +167,32 @@ npm install
 npm run dev:next                     # http://localhost:3000（仅前端；后端已在第 1 步单独启动）
 ```
 
-> 注意：不要用 `npm run dev` 一键启动——它内部的 `dev:server` 脚本写的是 Linux 路径 `.venv/bin/uvicorn`，Windows 下会失败。请按上面两步分别启动后端和前端。
-
-> 首次启动会自动建 SQLite 知识库并灌入默认商品知识。RAG 索引会在首次检索时自动构建。
+> **Windows 一键启动**：`npm run dev` 会用 `concurrently` 同时拉起前后端（`dev:server` 脚本已适配 Windows 路径）。若想日志分开看，也可按上面两步分终端启动。
+>
+> 首次启动会自动建 SQLite 知识库并灌入默认商品知识（4 条 demo 商品）。RAG 索引在首次检索时自动构建；**若要导入本地 1300 条真实商品，见《启动与部署指南》**。
 
 ### 方式 B：Docker 一键部署
 
-```bash
-# 在项目根目录，设置 API Key 后启动
-export OPENAI_API_KEY=sk-your-key    # Windows: set OPENAI_API_KEY=sk-your-key
+```powershell
+# 前置：先启动 Docker Desktop（daemon 未运行会报 npipe / Connection refused）
+
+# 1. 切到项目根目录（compose 文件所在处，否则报 no configuration file provided）
+cd <项目根目录>                       # 本项目：D:\下载应用\个人ai训练中心\ai-cs-agent
+
+# 2. 确认 python-backend/.env 已填 OPENAI_API_KEY（compose 通过 env_file 自动读取）
+#    无需在 shell 里 export，.env 里的值会注入容器
+
+# 3. 构建并启动三服务（backend + frontend + nginx）
 docker compose up -d --build
 ```
 
-容器启动后访问 http://localhost:8000/health 应返回 `{"status":"healthy","service":"AI电商客服智能体","agents":"6"}`。
+启动后访问 **http://localhost/**（nginx 统一入口）：后端 `/health` 返回 `{"status":"healthy","service":"AI电商客服智能体","agents":"6"}`，前端返回客服界面。
 
-> **国内网络提示**：Dockerfile 默认走 DaoCloud 镜像源 + 清华 pip 源，并先装 CPU 版 torch（避免拉取 2GB+ CUDA 依赖）。若已配置 registry-mirror 或能直连 Docker Hub，可用 `--build-arg BASE_IMAGE=python:3.13-slim` 改回官方镜像。
+> **国内网络提示**：Dockerfile 默认走 DaoCloud 镜像源 + 清华 pip 源 + npmmirror，并先装 CPU 版 torch（避免拉取 2GB+ CUDA 依赖）。若已配置 registry-mirror 或能直连 Docker Hub，可用 `--build-arg BASE_IMAGE=python:3.13-slim` 改回官方镜像。
+>
+> **常见坑**：① 必须 cd 到项目根目录再执行；② Docker Desktop 必须先启动；③ 重建过 backend/frontend 后若出现 502，执行 `docker compose restart nginx`（旧 nginx 缓存了已失效的容器 IP）。完整排查见《启动与部署指南》。
+
+完整说明（含两种方案对比、数据卷差异、故障排查）见 **[docs/启动与部署指南.md](docs/启动与部署指南.md)**。
 
 ---
 
@@ -170,7 +203,7 @@ docker compose up -d --build
 ```bash
 cd python-backend
 
-# 1. 完整 RAG 管线（构建索引 + 混合检索 + 重排）
+# 1. 完整 RAG 管线（构建索引 + 向量检索 + 重排）
 .venv/Scripts/python demo_rag.py              # Windows
 # python demo_rag.py                            # macOS/Linux
 
@@ -204,12 +237,12 @@ cd python-backend
 
 ```
 文档解析(pypdf/python-docx) → 语义分块(256/50) → BGE 向量化
-   → ChromaDB(cosine+HNSW) + BM25(jieba) 双路召回
-   → RRF 融合(k=60) → bge-reranker 精排 → 溯源
+   → numpy(cosine) 向量检索（主力）
+   → bge-reranker 交叉编码重排（精排头部） → 溯源
 ```
 
-- **双路召回**：向量（语义）+ BM25（精确匹配，补商品 ID/专有名词盲区）
-- **可降级设计**：Embedding 失败降级默认模型，重排失败自动跳过
+- **最终方案（数据驱动定型）**：纯 BGE 语义向量 + CrossEncoder 重排，BM25(jieba) 作为可插拔降级兜底组件（向量服务不可用时启动）。EcomRetrieval（1000 query × 100902 corpus）实测：纯向量 Recall@10=75.0% / nDCG@10=57.6%，加权 RRF 扫描最优 nDCG=54.5% 仍反超不了纯向量，故放弃默认混合检索。详见《RAG 检索评测报告》。
+- **可降级设计**：① Embedding 失败降级 Chroma 默认模型；② 重排失败自动跳过；③ 向量服务不可用时启动 BM25 兜底
 - **可溯源**：chunk 携带 `{type, product_id, policy_name}` 元数据
 
 ---
@@ -269,7 +302,7 @@ ai-cs-agent/
 │   │   ├── chunking.py          #   语义分块
 │   │   ├── embedding.py         #   BGE 向量化（可降级）
 │   │   ├── bm25.py              #   BM25 关键词检索
-│   │   ├── vector_store.py      #   ChromaDB 封装
+│   │   ├── vector_store.py      #   numpy 向量后端（兼容层）
 │   │   ├── reranker.py          #   bge-reranker 精排
 │   │   ├── pipeline.py          #   混合检索 + RRF 融合
 │   │   └── indexer.py           #   索引构建（backend 自动重建）
@@ -278,10 +311,10 @@ ai-cs-agent/
 │   │   ├── context.py           # 共享上下文
 │   │   ├── tools.py             # 13 个业务工具（含 RAG 接入）
 │   │   ├── demo_data.py         # 模拟商品/订单/优惠券/政策
-│   │   └── guardrails.py        # 4 个 Guardrail（输入 + 输出安全护栏）
+│   │   └── guardrails.py        # 2 个 Input Guardrail（相关性 + 越狱）+ 2 个 verdict 工具
 │   ├── data/
 │   │   ├── models/              # BGE 模型（本地，bind mount 挂载）
-│   │   ├── chroma_rag/          # ChromaDB 向量库
+│   │   ├── chroma_rag/          # 向量库数据目录
 │   │   ├── eval/                # 评测数据 + 结果 JSON
 │   │   └── knowledge.db         # SQLite 知识库
 │   ├── Dockerfile               # 容器化（CPU torch + 国内源）
@@ -289,7 +322,6 @@ ai-cs-agent/
 ├── ui/                          # Next.js 前端
 ├── docs/                        # 演示文档与截图
 │   ├── screenshots/             # 13 张核心流程截图
-│   └── 演示实录总览.html
 ├── docker-compose.yml           # 一键编排 + 模型卷挂载
 ├── 抖音接入方案.md              # 抖店开放平台接入设计 + Mock 联调
 ├── 淘宝接入方案.md              # 淘宝 TOP API 接入设计 + Mock 联调

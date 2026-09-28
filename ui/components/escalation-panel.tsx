@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { AlertTriangle, Clock, Package, User, X } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 type EscalationTicket = {
   id: string;
@@ -33,7 +34,8 @@ export function EscalationPanel({ escalation, onClose }: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    fetch("/api/escalations")
+    // 工单列表接口需坐席角色；未配置坐席 Key 时静默不展示（买家端无凭据属预期）
+    apiFetch("/api/escalations", "agent")
       .then((r) => r.json())
       .then((data) => setTickets(data.tickets || []))
       .catch(() => {});
@@ -113,12 +115,16 @@ export function EscalationPanel({ escalation, onClose }: Props) {
               )}
             </div>
             <button
-              onClick={() => {
-                // 模拟人工接管
-                const updated = tickets.map((t) =>
-                  t.id === ticket.id ? { ...t, status: "processing" } : t
-                );
-                setTickets(updated.filter((t) => t.status === "pending"));
+              onClick={async () => {
+                try {
+                  await apiFetch(`/api/escalations/${ticket.id}/accept`, "agent", { method: "POST" });
+                  const updated = tickets.map((t) =>
+                    t.id === ticket.id ? { ...t, status: "processing" } : t
+                  );
+                  setTickets(updated.filter((t) => t.status === "pending"));
+                } catch (err) {
+                  console.error("接入工单失败", err);
+                }
               }}
               className="mt-2 w-full text-center text-xs bg-orange-500 text-white rounded-lg py-1.5 hover:bg-orange-600 transition-colors"
             >

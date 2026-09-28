@@ -10,7 +10,7 @@ EcomRetrieval 检索质量评测脚本
   - hybrid_rerank : 混合检索 + bge-reranker 交叉编码器重排
 
 复用本项目 rag 包的同一套组件（BGE-small-zh / BM25 / reranker / RRF k=60），
-证明「混合检索 vs 单路」「重排 vs 不重排」的差异，产出可写进简历的硬指标。
+证明「混合检索 vs 单路」「重排 vs 不重排」的差异，产出可复现的检索质量硬指标。
 
 用法：
   python eval_retrieval.py                     # 全量：1000 query × 100902 corpus

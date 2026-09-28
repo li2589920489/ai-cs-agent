@@ -11,7 +11,7 @@
         ↓
 Embedding( BAAI/bge-small-zh-v1.5，本地中文向量，512维 )
         ↓
-向量库( ChromaDB，cosine 距离，HNSW 索引 )
+向量库( numpy + sqlite 自建后端，cosine 距离，矩阵乘法检索 )
    +
 BM25 关键词检索( rank-bm25 + jieba 分词 )
         ↓
@@ -29,19 +29,21 @@ Re-ranking( BAAI/bge-reranker-base 交叉编码器 )
 | 文档解析 | pypdf + python-docx | 覆盖 PDF/Word/TXT，兼容 GBK/UTF-8 |
 | 分块 | langchain-text-splitters 递归分块 | 按「段落→换行→中文句末标点→字符」逐级切分，语义不割裂 |
 | Embedding | BAAI/bge-small-zh-v1.5 | 中文效果好，~100MB 本地可跑（4GB 显存/CPU 均可），query 加指令前缀 |
-| 向量库 | ChromaDB | 轻量、持久化、cosine 距离、HNSW 索引，适合中小规模知识库 |
+| 向量库 | numpy + sqlite 自建 | ChromaDB 1.5.9 在 Windows 上 hnsw segment reader 崩溃（已知 issue），降级 0.4.24 又被 numpy 2.x/pydantic 2.x 依赖冲突卡住；自建 sqlite + numpy 后端，1300 chunks 检索 < 50ms，去掉 ~100MB 依赖 |
 | 关键词检索 | rank-bm25 + jieba | 稀疏检索补向量检索的精确匹配盲区（如商品 ID、专有名词） |
 | 融合 | RRF | 无需调权、对分数尺度不敏感，业界标准融合算法 |
 | 重排 | bge-reranker-base（Cross-Encoder） | 双塔 embedding 粗排后，交叉编码器逐对精排，显著提升 top-k 精度 |
 
-**核心设计原则：每层可插拔、可降级。** Embedding 加载失败自动降级 Chroma 默认模型；重排模型加载失败自动跳过重排；保证链路在任何环境都可用。
+**核心设计原则：每层可插拔、可降级。** Embedding 加载失败自动降级 chromadb 默认模型；重排模型加载失败自动跳过重排；纯向量检索走 numpy 后端，混合检索保留 BM25 路径可显式启用；保证链路在任何环境都可用。
 
 ## 三、检索流程（体现「检索优化」）
 
-1. **双路召回**：向量检索（语义）+ BM25（关键词）各召回 top20
-2. **RRF 融合**：`score(d) = Σ 1/(60 + rank)`，融合出兼顾语义与精确匹配的候选集
+1. **运行时默认纯向量 + 重排**：向量检索召回 top M → bge-reranker 重排 → top k
+2. **混合检索（保留能力）**：向量 + BM25 各召回 top20 → RRF 融合 → 重排。**仅在显式 `use_hybrid=True` 时启用**（评测脚本用）
 3. **精排**：Cross-Encoder 对 top8 候选逐对打分重排
 4. **溯源**：每个 chunk 携带 `{type, product_id, policy_name}` 元数据，回答可回溯到知识来源
+
+> **为什么运行时默认纯向量？** RAG 评测（`eval_retrieval.py`）在 EcomRetrieval 上对比纯向量 / BM25 / 混合 / 混合+重排四档，发现混合检索相对纯向量的增量仅 3.4%（34/1000 query）却污染 27.8%（278/1000），混合 nDCG 最高 54.5% < 纯向量 57.6%。结论：纯向量已是更优默认；混合检索作为可降级能力保留，调用方可显式启用。
 
 ## 四、如何运行验证
 
@@ -67,7 +69,7 @@ cd python-backend
 ## 六、模块在系统中的位置
 
 **RAG 模块：**
-> 电商客服知识库完整 RAG 检索管线：文档解析 → 语义分块 → BGE-small-zh 向量化 + ChromaDB 存储 → BM25+向量混合检索（RRF 融合）→ bge-reranker 交叉编码器重排，检索结果携带来源元数据支持溯源；各层可插拔、可降级，保障链路稳定。
+> 电商客服知识库完整 RAG 检索管线：文档解析 → 语义分块 → BGE-small-zh 向量化 + 自建 numpy+sqlite 向量库 → BM25+向量混合检索（RRF 融合，运行时默认关闭，作为可显式启用的能力保留）→ bge-reranker 交叉编码器重排，检索结果携带来源元数据支持溯源；各层可插拔、可降级，保障链路稳定。
 
 **MCP 模块：**
 > 用 FastMCP 将知识库检索 / 订单查询封装为标准化 MCP Server，Agent 通过 MCP 协议统一调用，实现工具层与编排层解耦、跨框架复用。
@@ -94,3 +96,61 @@ cd python-backend
 2. **CPU 版 torch**：Linux 上 `torch` 默认 CUDA 版会拉 2GB+ 的 nvidia 依赖，改为先装 CPU 版（191MB），镜像从 ~6GB 压到 2.6GB，契合轻量化定位。
 3. **pip 国内源**：`PIP_INDEX_URL` 指向清华源，依赖下载稳定 6-8MB/s。
 4. **模型与镜像解耦**：BGE 模型不进镜像（`.dockerignore` 排除 `data/`），改用 bind mount `./python-backend/data/models:/app/data/models:ro` 只读挂载，容器内实测 `embedding_backend=bge-local` + `reranker=True`，镜像保持 2.6GB 瘦身、模型独立更新无需重建镜像。
+
+## 八、运行时策略调整（2026-09-10）
+
+### 1) BM25 降级为兜底
+
+- **过去**：`tools.py:_rag_search()` 写死 `use_hybrid=True`，所有 RAG 工具默认走混合检索
+- **现在**：`use_hybrid=False` 是默认；混合检索仅在显式传入时启用（如 `eval_retrieval.py` 的对比实验）
+- **依据**：`data/eval/ecom_retrieval/eval_results.json` 实测，纯向量 nDCG@10=57.6% > 混合+重排 54.5%（详见 `eval_retrieval.py` + `eval_rrf_tuning.py` 的对比报告）
+
+### 2) 政策检索：RAG 优先 + 规则兜底
+
+- **过去**：`faq_lookup_tool` 是 15 个关键词的硬编码规则匹配；`rag_search_tool` 是 RAG 版但仅作兜底
+- **现在**：`faq_lookup_tool` 默认走 RAG 语义检索（`type_filter="policy"`），命中真实政策 chunk；仅在 RAG 失败/无结果时回退到规则匹配（应对 embedding 模型不可用、向量库为空等异常场景）
+- **新增**：`rag_search_tool` 改为纯 RAG 路径，禁用规则匹配兜底，给调用方一个"明确只要语义检索"的选项
+- **接口不变**：Agent 工具层（`ecommerce/agents.py` 政策 Agent）无需改调用方式
+
+### 3) MCP 工具同步
+
+- `mcp_server.py` 的 `search_knowledge` / `search_policy` 默认 `use_hybrid=False`，与项目内 Agent 工具链策略一致
+
+### 4) Prompt 同步
+
+- `ecommerce/agents.py` 政策 Agent 的 instructions 改为「默认走 RAG，规则匹配仅作兜底；需要更强语义时可改用 `rag_search_tool`」
+
+## 九、踩坑记录：chromadb hnsw 损坏 → 自建 numpy 后端
+
+### 现象
+
+`build_index` 成功（历史：当时 1327 chunks 入库），但 `count() / get() / query()` 全部抛：
+```
+Error executing plan: Error sending backfill request to compactor:
+Error constructing hnsw segment reader: Error loading hnsw index
+```
+
+### 排查
+
+1. 数据完整在 `data/chroma_rag/chroma.sqlite3` 的 `embeddings` / `embedding_metadata` 表中，1327 行全部存在
+2. chromadb 1.5.9 是已知有这个 bug（hnsw segment 文件未正确生成），上游在 1.5.x 仍未完全修复
+3. 降级 chromadb 0.4.24 修复 hnsw，但被 numpy 2.x / pydantic 2.x 依赖冲突卡住（pip safe-delete 在 Windows 上反复撞文件锁）
+
+### 决策
+
+自建 `rag/numpy_store.py`（NumpyVectorStore）：
+- 持久化：独立 sqlite（`numpy_store.db`），schema 干净（`chunks` + `collection_meta` 两张表）
+- 检索：BGE 向量已归一化，矩阵乘法等价 cosine 相似度；1300 chunks 检索 < 50ms
+- 接口完全兼容原 ChromaDB VectorStore（`count / get_metadata / set_metadata / upsert / query`），上层无感
+
+### 优势
+
+- 不依赖 chromadb 包（虽然仍装着供 embedding.py 兜底用）
+- 数据可迁移：原 chromadb.sqlite3 仍保留（历史存档，1327 chunks 在），可通过迁移脚本搬到 numpy_store.db
+- 工程价值：**评估 chromadb 在生产环境的稳定性，发现 hnsw 在某些 OS 上崩溃，决策自建后端，规避供应商锁定**
+
+### 保留
+
+- `vector_store.py` 作为兼容层，继承 `numpy_store.NumpyVectorStore`
+- `pipeline.py` / `indexer.py` / `mcp_server.py` 不需要改动接口
+- `rag/bm25.py` / `rag/reranker.py` 不变

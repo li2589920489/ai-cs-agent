@@ -61,9 +61,14 @@ export function ChatPanel({ onAgentTrace, onEscalation }: Props) {
           }
           if (data.ticket_status === "closed") {
             setManualMode(false);
+            setSessionId(null);
+            manualCountRef.current = 0;
           }
         } else {
+          // 工单关闭或无人工会话：退出接管模式并清 session，后续消息走新会话
           setManualMode(false);
+          setSessionId(null);
+          manualCountRef.current = 0;
         }
       } catch {
         // 轮询失败忽略
@@ -80,6 +85,33 @@ export function ChatPanel({ onAgentTrace, onEscalation }: Props) {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
+
+    // 人工接管模式下，消息仍需提交到后端，由后端写入工单消息列表，
+    // 否则坐席工作台看不到买家的后续消息；后端 /api/chat 的 manual session
+    // 分支会返回硬编码提示，前端不再展示它，避免每次输入都重复提示。
+    if (manualMode) {
+      const sentAt = Date.now();
+      setMessages((prev) => [
+        ...prev,
+        { id: sentAt.toString(), role: "user", content: text, timestamp: new Date() },
+      ]);
+      setInput("");
+      setLoading(true);
+      setError(null);
+      try {
+        await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, session_id: sessionId }),
+        });
+        // 不展示后端返回的 hardcoded「您已接入人工客服…」提示
+      } catch (err: any) {
+        setError(err.message || "发送失败，请重试");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -151,6 +183,31 @@ export function ChatPanel({ onAgentTrace, onEscalation }: Props) {
       {/* 标题栏 */}
       <div className="bg-orange-500 text-white h-12 px-4 flex items-center rounded-t-xl">
         <h2 className="font-semibold text-sm">客户咨询</h2>
+        <div className="ml-auto flex items-center gap-2">
+          {manualMode ? (
+            <span className="text-xs bg-white/20 px-2 py-1 rounded-full flex items-center gap-1">
+              <User className="h-3 w-3" /> 人工接管中
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (loading) return;
+                setInput("转人工");
+                // 直接触发与点击发送按钮等价的提交流程
+                setTimeout(() => {
+                  const syntheticEvent = { key: "Enter", shiftKey: false, preventDefault: () => {} } as React.KeyboardEvent;
+                  handleKeyDown(syntheticEvent as any);
+                }, 0);
+              }}
+              disabled={loading}
+              className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full disabled:opacity-50 transition-colors flex items-center gap-1"
+              title="一键发起转人工"
+            >
+              <User className="h-3 w-3" /> 转人工
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 消息区 */}

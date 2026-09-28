@@ -10,8 +10,11 @@ python-dotenv
 pypdf
 python-docx
 
+# ===== 数值计算（rag/numpy_store.py 直接依赖）=====
+numpy                      # 自建向量库的矩阵运算；此前靠 sentence-transformers 间接带入，现显式声明
+
 # ===== RAG 完整技术栈 =====
-chromadb
+chromadb  # [遗留] 向量库已迁移 numpy 后端；仅 embedding.py 兜底用到 chromadb 默认 ONNX 模型，勿据其改回 ChromaDB
 sentence-transformers      # 本地中文 Embedding(bge-small-zh) + Re-ranking(bge-reranker)
 rank-bm25                  # BM25 关键词检索
 jieba                      # 中文分词
