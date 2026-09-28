@@ -1,0 +1,3 @@
+# 测试依赖（CI 与本地开发用，不进生产 Docker 镜像）
+pytest
+httpx

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      # 精简依赖：smoke 测试仅需 import main + 跑 /health 与鉴权用例。
+      # 不装 torch / sentence-transformers / chromadb 等重依赖（Triage/RAG 用例在无 key/无模型时自动 skip）。
+      # numpy 必须装：main.py 顶层 import rag → rag/numpy_store.py 顶层 import numpy，
+      # 缺它会在 `from main import app` 阶段直接 ImportError（pytest collection error）。
+      - name: Install minimal dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn pydantic python-dotenv openai-agents openai-chatkit pytest httpx numpy
+
+      # 语法检查：compileall 只做 py_compile，不 import 模块，不要求 numpy/pyarrow 等重依赖
+      - name: Syntax check (compileall)
+        run: python -m compileall -q .
+
+      # smoke 测试：/health + 鉴权用例跑通；LLM/RAG 用例因无 API key / 无本地模型自动 skip
+      - name: Run smoke tests
+        run: pytest tests/ -v
