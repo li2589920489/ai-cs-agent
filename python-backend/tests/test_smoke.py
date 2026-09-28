@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 from pathlib import Path
 
@@ -22,7 +23,12 @@ client = TestClient(app)
 
 _HAS_API_KEY = bool(os.getenv("OPENAI_API_KEY"))
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
+# 两个条件都要满足才能跑 RAG 用例：模型文件在 + sentence-transformers 装得上。
+# 只判模型目录会漏掉「装了模型但没装依赖」的环境——那种情况下 Embedder 会抛
+# RuntimeError（无法初始化 Embedding），是报错而不是 skip。
 _HAS_MODEL = (_BACKEND_DIR / "data" / "models" / "bge-small-zh-v1.5" / "config.json").exists()
+_HAS_ST = importlib.util.find_spec("sentence_transformers") is not None
+_HAS_RAG = _HAS_MODEL and _HAS_ST
 
 # 鉴权测试用凭据
 TENANT_A = ("tenant_a", "key_a_123", "租户A", "tenant")
@@ -130,7 +136,7 @@ def test_triage_routing_smoke():
 
 # ==================== E1：RAG 检索 smoke ====================
 
-@pytest.mark.skipif(not _HAS_MODEL, reason="需要本地 BGE 模型")
+@pytest.mark.skipif(not _HAS_RAG, reason="需要本地 BGE 模型 + sentence-transformers")
 def test_rag_retrieval_smoke():
     """纯向量检索能召回结果（不加载 reranker，保持轻量）"""
     from rag import load_pipeline

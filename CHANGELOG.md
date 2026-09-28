@@ -37,12 +37,15 @@
 - 每次冷启动全量索引重建（知识库指纹漂移）
 - `/api/escalations` 列表与 `{id}/messages` 零鉴权 → 均走 `require_agent_role`（仅 `GET /api/chat/poll` 保留无鉴权，作已知限制）
 - **`pytest` 会污染开发用向量索引（1328 → 28 chunks）**：`rag/indexer.py` 的持久化目录此前硬编码、无环境变量出口，而 `tests/test_smoke.py::test_rag_retrieval_smoke` 会调 `load_pipeline()`，于是测试用「只有 5 行 demo 的临时知识库」在 `data/chroma_rag/` 里重建了索引。修复：`DEFAULT_PERSIST_DIR` 支持 `RAG_PERSIST_DIR` 覆盖 + `tests/conftest.py` 把索引目录一并指向临时目录
+- **CI run #1 退出码 2（收集期 `ModuleNotFoundError: No module named 'main'`）**：CI 步骤用的是裸 `pytest`，其 `sys.path[0]` 是 Scripts/bin 目录、不含 cwd，而 `tests/*.py` 需要 `from main import app` → 三个测试文件全报 ERROR → `Interrupted: 3 errors during collection`。修复：`tests/conftest.py` 显式把 `python-backend/` 插入 `sys.path`（裸 `pytest` 与 `python -m pytest` 都能跑，不再依赖调用方式）；CI 步骤同时改用 `python -m pytest`
+- **`test_rag_retrieval_smoke` 的 skip 条件不完整**：原来只判 `data/models/` 下模型文件是否存在，未判 `sentence-transformers` 能否导入；「装了模型但没装依赖」的环境会抛 `RuntimeError: 无法初始化 Embedding` 而不是 skip。修复：`_HAS_RAG = _HAS_MODEL and _HAS_ST`（`importlib.util.find_spec`）
 
 ### Verified（验证）
 
 | 项 | 数据 |
 |---|---|
 | pytest | **22 passed**（smoke / API 契约 / 退货状态机 / 测试隔离回归） |
+| CI（GitHub Actions） | run #1 ❌ 退出码 2（裸 `pytest` 收集期 `ModuleNotFoundError`）→ 修复后 run #2 ✅ 全部步骤 success（CI 环境无本地模型，为 21 passed + 1 skipped） |
 | 预热日志 | `[RAG] 预热完成：1328 chunks` |
 | 索引指纹稳定性 | 修复前连续 3 次冷启动指纹均漂移；修复后不再漂移（复用索引） |
 | 测试隔离（A/B 对照） | 置空 `RAG_PERSIST_DIR` 跑一次 pytest → 开发索引 1328 → **28 chunks**（复现污染）；修复后跑 pytest → 索引 chunks 与 mtime **完全不变** |

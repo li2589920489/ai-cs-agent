@@ -134,8 +134,9 @@ npm run dev:next                                  # 只起 Next.js dev server（
 # npm run dev 会并用 concurrently 同时起前后端；其 dev:server 写死 .venv\Scripts\python.exe，仅 Windows 可用
 # 锁文件为 package-lock.json（npm），pnpm-lock.yaml 已移除
 
-# 测试（conftest.py 自动把 DB 指向临时目录，不写 data/*.db）
+# 测试（conftest.py 自动把 DB 与 RAG 索引目录指向临时目录，不写 data/*.db）
 .venv\Scripts\python -m pytest tests\ -v
+# 裸 `pytest` 也能跑（conftest 已把 python-backend/ 插进 sys.path）；但推荐 `python -m pytest`
 
 # 独立验证（不启动全服务）
 .venv\Scripts\python demo_rag.py                  # RAG 管线
