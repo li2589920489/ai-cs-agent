@@ -7,7 +7,7 @@
 两种运行方式：
 1. 进程内模式（默认，单命令验证，无需起 webhook 服务）：
        .venv/Scripts/python.exe mock_taobao.py
-2. HTTP 模式（模拟真实「平台 → 你的服务器」推送，需先起 taobao_webhook.py:8002）：
+2. HTTP 模式（模拟真实「平台 → 本服务」推送，需先起 taobao_webhook.py:8002）：
        .venv/Scripts/python.exe mock_taobao.py --http
 
 自定义消息：

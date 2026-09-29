@@ -310,7 +310,7 @@ Human Escalation → Triage (返回)
 
 ---
 
-## 十、技术亮点
+## 十、关键技术实现
 
 1. **6 Agent 多智能体协作**：Triage 分流 + Handoff 接力，非简单串行
 2. **Human-in-the-Loop**：复杂/敏感场景自动标记转人工，生成结构化摘要

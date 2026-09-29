@@ -93,7 +93,7 @@ cd python-backend
 
 **Docker 落地的三个关键决策：**
 1. **镜像加速器**：国内直连 Docker Hub 超时，配置 registry-mirror（DaoCloud 等 3 源）+ 基础镜像走 DaoCloud，构建 22s 拉取完成。
-2. **CPU 版 torch**：Linux 上 `torch` 默认 CUDA 版会拉 2GB+ 的 nvidia 依赖，改为先装 CPU 版（191MB），镜像从 ~6GB 压到 2.6GB，契合轻量化定位。
+2. **CPU 版 torch**：Linux 上 `torch` 默认 CUDA 版会拉 2GB+ 的 nvidia 依赖，改为先装 CPU 版（191MB），镜像从 ~6GB 压到 2.6GB。
 3. **pip 国内源**：`PIP_INDEX_URL` 指向清华源，依赖下载稳定 6-8MB/s。
 4. **模型与镜像解耦**：BGE 模型不进镜像（`.dockerignore` 排除 `data/`），改用 bind mount `./python-backend/data/models:/app/data/models:ro` 只读挂载，容器内实测 `embedding_backend=bge-local` + `reranker=True`，镜像保持 2.6GB 瘦身、模型独立更新无需重建镜像。
 

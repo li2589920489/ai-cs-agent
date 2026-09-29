@@ -1,6 +1,6 @@
 {
   "data_source": {
-    "path": "D:\\下载应用\\个人ai训练中心\\ai-cs-agent\\python-backend\\data\\eval\\ecom_retrieval\\corpus.parquet",
+    "path": "data/eval/ecom_retrieval/corpus.parquet",
     "raw_total": 100902,
     "dataset": "C-MTEB/EcomRetrieval (真实淘宝商品 query-corpus 检索基准)"
   },

@@ -303,7 +303,7 @@ def build_report(
 
     report = {
         "data_source": {
-            "path": str(CORPUS_PATH),
+            "path": CORPUS_PATH.relative_to(ROOT).as_posix(),
             "raw_total": len(raw_df),
             "dataset": "C-MTEB/EcomRetrieval (真实淘宝商品 query-corpus 检索基准)",
         },

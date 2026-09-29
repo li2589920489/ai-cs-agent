@@ -93,7 +93,7 @@
 - `eval_routing.py`：Triage 意图路由评测（80 条黄金用例 → 98.75%）
 - `eval_retrieval.py`：RAG 检索质量评测（1000 query × 10 万语料）
 - `eval_rrf_tuning.py`：混合检索 RRF 调优实验（8 种配置扫描）
-- `分流评测报告.md` / `RAG检索评测报告.md` / `评测数据集选型与落地方案.md`
+- `分流评测报告.md` / `RAG检索评测报告.md` / `评测数据集选型与采用记录.md`（时名 `评测数据集选型与落地方案.md`）
 - `data/eval/routing_eval_results.json` / `ecom_retrieval/eval_results.json` / `ecom_retrieval/rrf_tuning_results.json`
 
 #### 文档
@@ -104,11 +104,12 @@
 #### 文档数字与代码实测全面对齐
 - `README.md`：Triage `240 条` → `80 条`、Recall@10 `73.8%` → `75.0%`、MRR@10 `52.0%` → `52.1%` + 新增 `nDCG@10 57.6%`、工具数 `17` → `13 业务 + 4 Guardrail + 4 MCP = 21`
 - `DESIGN.md`：项目结构章节补全所有新增模块，工具数从 12 → 13
-- `需求分析文档.md` / `RAG检索评测报告.md` / `分流评测报告.md` / `评测数据集选型与落地方案.md` / `抖音接入方案.md` / `python-backend/RAG技术栈说明.md`：数字与措辞全面校准
+- `需求分析文档.md` / `RAG检索评测报告.md` / `分流评测报告.md` / `评测数据集选型与采用记录.md` / `抖音接入方案.md` / `python-backend/RAG技术栈说明.md`：数字与措辞全面校准
 
 #### 工程改造
 - `python-backend/ecommerce/tools.py`：提取局部变量小重构（行为不变）
-- 全仓库 9 个 .md：移除招聘向措辞（合计 32+ 处）
+- 全仓库 14 个 .md + 4 个 `.py` + 1 个 `.json`：移除面向外部的劝说性叙述、第二人称方案书措辞、自我评价式小节标题（`核心亮点` / `技术亮点` / `工程亮点` / `（诚实说明）` / `（不回避）`）与本机个人路径（合计 50+ 处）
+- `评测数据集选型与落地方案.md` → `评测数据集选型与采用记录.md`：正文重写为客观选型记录，文件名与标题对齐；`python-backend/data/import_report.json` 的 `data_source.path` 改为仓库相对路径 `data/eval/ecom_retrieval/corpus.parquet`（生成端 `import_real_products.py` 同步改用 `relative_to(ROOT).as_posix()`）
 
 ### Removed（删除）
 
