@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ai-cs-agent 系统架构图</title>
+<style>
+  @page { size: A4 landscape; margin: 8mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 18px 22px;
+    font-family: "Microsoft YaHei", "PingFang SC", -apple-system, "Segoe UI", sans-serif;
+    background: #ffffff; color: #1a1d21;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: .3px; }
+  .sub { font-size: 11px; color: #6b7280; margin-bottom: 14px; }
+  .sub code { background:#f3f4f6; padding:1px 5px; border-radius:3px; font-size:10.5px; }
+
+  .layer { display: flex; align-items: stretch; gap: 10px; margin-bottom: 8px; }
+  .band {
+    flex: 0 0 74px; border-radius: 7px; padding: 8px 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; text-align: center; line-height: 1.35;
+    color: #fff; letter-spacing: .5px;
+  }
+  .items { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; }
+
+  .box {
+    flex: 1 1 0; min-width: 0; border: 1.4px solid #d1d5db; border-radius: 7px;
+    padding: 7px 9px; background: #fafbfc;
+  }
+  .box .t { font-size: 11.5px; font-weight: 700; margin-bottom: 3px; }
+  .box .d { font-size: 10px; color: #4b5563; line-height: 1.5; }
+  .box .d em { font-style: normal; color: #6b7280; }
+
+  .b-fe  { background: #1e5f9e; }
+  .b-gw  { background: #0f766e; }
+  .b-ag  { background: #7c3aed; }
+  .b-tl  { background: #b45309; }
+  .b-rag { background: #be123c; }
+  .b-db  { background: #334155; }
+  .b-ops { background: #475569; }
+
+  .hero { border-width: 2px; border-color: #1e5f9e; background: #eff6ff; }
+  .hero .t { color: #1e3a8a; }
+  .escalation { border-color:#d97706; background:#fffbeb; }
+  .escalation .t { color:#92400e; }
+
+  .arrow { text-align: center; font-size: 12px; color: #9ca3af; line-height: 1; margin: -2px 0 6px; }
+
+  .note {
+    font-size: 10px; color: #6b7280; margin-top: 10px; padding: 7px 10px;
+    background: #f9fafb; border-left: 3px solid #9ca3af; border-radius: 0 5px 5px 0;
+    line-height: 1.6;
+  }
+  .note b { color:#b45309; }
+  .dash { border-style: dashed !important; }
+
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:10px; color:#4b5563; margin-top:8px; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+</style>
+<!-- 打印收紧：保证压进 1 张 A4 横向 -->
+<style>
+  body { padding: 9px 13px; }
+  h1 { font-size: 14.5px; margin: 0 0 1px; }
+  .sub { font-size: 9.8px; margin-bottom: 7px; }
+  .layer { gap: 8px; margin-bottom: 5px; }
+  .band { flex: 0 0 66px; padding: 6px 5px; font-size: 10px; border-radius: 6px; }
+  .items { gap: 7px; }
+  .box { padding: 4px 7px; border-radius: 6px; }
+  .box .t { font-size: 10.5px; margin-bottom: 2px; }
+  .box .d { font-size: 9.2px; line-height: 1.36; }
+  .arrow { font-size: 10px; margin: -3px 0 3px; }
+  .legend { font-size: 9.2px; margin-top: 5px; gap: 11px; }
+  .note { font-size: 9.2px; margin-top: 6px; padding: 5px 9px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1>AI 电商客服智能体 · 系统架构</h1>
+<div class="sub">
+  6 Agent + 完整 RAG + MCP + LangGraph(原型) · FastAPI + Next.js 15 + SQLite · Docker Compose 三 service ·
+  仓库 <code>github.com/li2589920489/ai-cs-agent</code>
+</div>
+
+<!-- 前端 -->
+<div class="layer">
+  <div class="band b-fe">前端<br>Next.js 15</div>
+  <div class="items">
+    <div class="box hero">
+      <div class="t">买家对话面板</div>
+      <div class="d">SSE 流式渲染 · 按 <code>mid</code> 分段替换 · trace 进度映射</div>
+    </div>
+    <div class="box">
+      <div class="t">知识库管理面板</div>
+      <div class="d">商品知识 CRUD · CSV/PDF/Word 批量导入 · 重建索引</div>
+    </div>
+    <div class="box">
+      <div class="t">坐席工作台</div>
+      <div class="d">工单列表 · 接管 / 回复 / 关闭 · 对话摘要</div>
+    </div>
+  </div>
+</div>
+<div class="arrow">▼ &nbsp; fetch + 统一 apiFetch（自动注入 API Key，校验 res.ok）</div>
+
+<!-- 接入层 -->
+<div class="layer">
+  <div class="band b-gw">接入层<br>FastAPI</div>
+  <div class="items">
+    <div class="box">
+      <div class="t">对话接口</div>
+      <div class="d"><code>POST /api/chat</code> · <code>/api/chat/stream</code><br><em>5 类帧：delta / trace / escalation / error / done</em></div>
+    </div>
+    <div class="box">
+      <div class="t">知识库接口 ×7</div>
+      <div class="d">CRUD · 检索 · 导入 · 重建索引<br><em>走 <code>get_current_tenant</code></em></div>
+    </div>
+    <div class="box">
+      <div class="t">工单接口 ×5</div>
+      <div class="d">列表 / 消息 / accept / reply / close<br><em>走 <code>require_agent_role</code></em></div>
+    </div>
+    <div class="box escalation">
+      <div class="t">鉴权（auth.py）</div>
+      <div class="d">API Key → tenant_id 绑定 · api_key 存 sha256 · 越权 401/403</div>
+    </div>
+  </div>
+</div>
+<div class="arrow">▼</div>
+
+<!-- 护栏 -->
+<div class="layer">
+  <div class="band b-gw">护栏</div>
+  <div class="items">
+    <div class="box">
+      <div class="t">Input Guardrail ×2</div>
+      <div class="d">Relevance 相关性检测 · Jailbreak 越狱检测 &nbsp;<em>（保留自原示例）</em></div>
+    </div>
+    <div class="box">
+      <div class="t">输入校验 + 限流</div>
+      <div class="d">空/超长拦截 · 内存滑动窗口 60s / 30 次</div>
+    </div>
+    <div class="box">
+      <div class="t">兜底</div>
+      <div class="d">max_turns=10 截断 · 非法 JSON 降级 · 30min 会话 TTL</div>
+    </div>
+  </div>
+</div>
+<div class="arrow">▼</div>
+
+<!-- Agent 层 -->
+<div class="layer">
+  <div class="band b-ag">Agent 层<br>Agents SDK</div>
+  <div class="items">
+    <div class="box hero" style="flex:.7">
+      <div class="t">Triage 分诊</div>
+      <div class="d">意图分流<br><b>98.75%</b>（79/80）</div>
+    </div>
+    <div class="box"><div class="t">订单详情</div><div class="d">订单 / 物流 / 取消</div></div>
+    <div class="box"><div class="t">商品知识</div><div class="d">搜索 / 库存 / 比价</div></div>
+    <div class="box"><div class="t">售后退换货</div><div class="d">退货 / 退款状态机</div></div>
+    <div class="box"><div class="t">店铺政策</div><div class="d">政策问答 / 优惠券</div></div>
+    <div class="box escalation" style="flex:.8">
+      <div class="t">Human Escalation</div>
+      <div class="d">生成摘要转人工<br><em>HITL 兜底</em></div>
+    </div>
+  </div>
+</div>
+<div class="arrow">▼ &nbsp; Handoff 接力（显式 tool_name_override 规避中文名冲突）</div>
+
+<!-- 工具层 -->
+<div class="layer">
+  <div class="band b-tl">工具层</div>
+  <div class="items">
+    <div class="box">
+      <div class="t">13 个业务 function_tool</div>
+      <div class="d">订单查询 · 商品检索 · 库存 · 退货三动作(create/cancel/status) · 优惠券 · 政策 …</div>
+    </div>
+    <div class="box">
+      <div class="t">4 个 MCP 工具</div>
+      <div class="d">FastMCP stdio · 知识库 / 订单能力标准化封装 · 可跨客户端复用</div>
+    </div>
+    <div class="box" style="border-style:dashed;border-color:#d97706;background:#fffbeb">
+      <div class="t" style="color:#92400e">LangGraph 售后状态机</div>
+      <div class="d">5 节点独立原型 · <b>未接入主链路</b>（线上售后走 after_sales_agent）</div>
+    </div>
+  </div>
+</div>
+<div class="arrow">▼</div>
+
+<!-- 检索层 -->
+<div class="layer">
+  <div class="band b-rag">检索层<br>RAG</div>
+  <div class="items">
+    <div class="box hero">
+      <div class="t">BGE 语义向量（主力）</div>
+      <div class="d">bge-small-zh 编码 · <b>自建 numpy 后端</b>：sqlite 持久化 + 内存矩阵 cosine<br><em>原用 ChromaDB，因 Windows hnsw 损坏自研替换</em></div>
+    </div>
+    <div class="box">
+      <div class="t">CrossEncoder 重排</div>
+      <div class="d">bge-reranker-base · 检索延迟 <b>&lt;50ms</b></div>
+    </div>
+    <div class="box">
+      <div class="t">BM25（降级）</div>
+      <div class="d">jieba 分词 · <b>默认不参与融合</b> · 实测混合 nDCG 54.5% &lt; 纯向量 57.6%</div>
+    </div>
+    <div class="box">
+      <div class="t">溯源</div>
+      <div class="d">回答附带来源 chunk · 1328 chunks（商品 1305 + 政策）</div>
+    </div>
+  </div>
+</div>
+<div class="arrow">▼</div>
+
+<!-- 数据层 -->
+<div class="layer">
+  <div class="band b-db">数据层<br>SQLite</div>
+  <div class="items">
+    <div class="box">
+      <div class="t">knowledge.db</div>
+      <div class="d">商品 / 政策知识 · tenant_id 过滤 + OVERVIEW 实时统计</div>
+    </div>
+    <div class="box">
+      <div class="t">auth.db</div>
+      <div class="d">租户 + API Key(sha256) · 启动 seed</div>
+    </div>
+    <div class="box">
+      <div class="t">orders.db</div>
+      <div class="d">orders + return_cases 两表 · partial UNIQUE INDEX 保证退货幂等</div>
+    </div>
+    <div class="box">
+      <div class="t">会话（内存态）</div>
+      <div class="d">30min TTL · <em>非跨会话长期记忆</em></div>
+    </div>
+  </div>
+</div>
+<div class="arrow">&nbsp;</div>
+
+<!-- 工程 -->
+<div class="layer">
+  <div class="band b-ops">工程<br>证据</div>
+  <div class="items">
+    <div class="box">
+      <div class="t">测试 + CI</div>
+      <div class="d">pytest 31 用例（本地）/ 21（CI）· DB / RAG 索引双隔离 · GitHub Actions：compileall + pytest</div>
+    </div>
+    <div class="box">
+      <div class="t">评测体系 ×4</div>
+      <div class="d">Triage 98.75% · RAG R@10 75.0% · Prompt 88.46% · 真实语料 97.33%</div>
+    </div>
+    <div class="box">
+      <div class="t">容器化</div>
+      <div class="d">Docker Compose 三 service（backend / frontend / nginx）· 镜像 6GB → <b>2.6GB</b></div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i style="background:#eff6ff;border:1.5px solid #1e5f9e"></i>核心链路</span>
+  <span><i style="background:#fffbeb;border:1.5px solid #d97706"></i>兜底 / 鉴权</span>
+  <span><i style="background:#fffbeb;border:1.5px dashed #d97706"></i>未接入主链路</span>
+</div>
+
+<div class="note">
+  <b>起点声明：</b>本项目 Fork 自 <code>openai/openai-cs-agents-demo</code>（航空客服示例），保留其 Handoff 机制与双 Input Guardrail。
+  图中 <b>RAG 检索链路 / 鉴权与多租户 / 退货状态机 / SSE 流式对话 / 知识库后台与真实语料导入 / 评测体系与 CI</b> 六块，在原示例中完全不存在，为从 0 设计与实现。
+  <br><b>已知边界：</b>LangGraph 状态机未接入主链路 · 向量层与 Agent 工具链尚未做租户过滤（工具链单租户假设）· 未上公网、无真实店铺与真实用户。
+</div>
+
+</body>
+</html>
