@@ -144,3 +144,6 @@ python-backend/data/auth.db
 python-backend/data/orders.db
 python-backend/data/*.log
 python-backend/data/__pycache__/
+
+# 本地临时产物（验收脚本编译产物 / 数据库备份 / A-B 配置），不入仓
+tmp/

@@ -21,6 +21,9 @@
 - **自动化测试**：`python-backend/tests/`（`conftest.py` 把 `KNOWLEDGE_DB_PATH` / `AUTH_DB_PATH` / `ORDER_DB_PATH` 指向临时目录；`test_smoke.py` / `test_api_contracts.py` / `test_return_state.py`）
 - **CI**：`.github/workflows/ci.yml`（`compileall` 语法检查 + `pytest`，`python-version: "3.10"`，只装精简依赖）
 - `python-backend/requirements-dev.txt`（pytest / httpx，不进生产镜像）
+- **SSE 流式对话端点 `POST /api/chat/stream`**（`main.py` + `chat_service.py::run_chat_stream`）：5 类帧协议 `delta` / `trace` / `escalation` / `error` / `done`，线格式 `event: X\ndata: {...}\n\n`；`delta` 帧带 `mid`（消息标识，取自 SDK `item_id`），`done` 帧带权威 `reply` + `session_id` + `final_agent`
+- **前端 SSE 解帧层 `ui/lib/sse.ts`**：`EventSource` 只支持 GET，故用 `fetch` + `ReadableStream` + `TextDecoder({stream:true})` 手工解帧（正确处理 UTF-8 多字节跨 chunk）；`ui/lib/chat-stream.ts` 把 `trace` 归一为进度文案（13 工具 + 6 Agent 映射）
+- **`python-backend/tests/test_chat_stream.py`**：SSE 帧协议单测（全 mock），覆盖 5 类帧 + `delta.mid` 分段 + 前言替换 + `done.reply` 权威性 + 早退分支
 
 ### Changed（修改）
 
@@ -29,6 +32,11 @@
 - `knowledge_store.py`：① `_ensure_store_overview()` 内容未变时不再刷 `updated_at`（此前每次冷启动都会让知识库指纹漂移，触发全量重向量化 1300+ chunk）；② `_seed_default_knowledge()` 不再提前 `conn.close()`（此前全新 DB 首次启动必抛 `Cannot operate on a closed database`）
 - `rag/__init__.py`：`get_pipeline()` 改为双重检查加锁（`threading.Lock`），并发首问不再重复建索引
 - 文档与规则同步：`AGENTS.md`（死组件行 / compose 三 service / 红线 1·5 / chunk 口径 / Python 版本）、`需求分析文档.md`、`docs/真实商品导入工程.md`、`README.md`
+- `nginx.conf`：`location /api/` 增加流式三指令（`proxy_http_version 1.1` + `proxy_set_header Connection ""` + `proxy_buffering off` + `proxy_cache off`）——T9 隔离实验证明：在后端不带 `X-Accel-Buffering: no` 响应头时，缺这三条会让帧全部攒到结束才下发（帧到达跨度 **1ms** vs 带三指令的 **1856ms**）
+- `python-backend/ecommerce/agents.py`：6 个 Agent 的 instructions 统一追加 `_NO_PREAMBLE` 输出约束（禁止在工具调用 / 交接前输出说明性前言）；起因是 `run_chat` 对 `MessageOutputItem` 取的是**覆盖**语义（只留最后一条），流式若全量下发就会泄漏「中间前言」——实测修复后 5/5 查询由「带英文前言」变为「仅 1 段、零前言」
+- `ui/components/chat-panel.tsx`：流式渲染由「纯追加」改为「按 `mid` 分段替换」（`mid` 变化即替换末段内容），并在 `done` 帧用权威 `reply` 校订，保证屏上内容 === 最终答复；旧后端不带 `mid` 时退化为纯追加
+- 文档与规则同步（流式）：`AGENTS.md`（`/api/chat/stream`、`server.py` 死代码标注、`ui/lib` 结构）、`README.md`、`CHANGELOG.md`
+- **口径修正（复跑实测发现）**：Triage `98.75%` 是**单次实测值** —— 6 个 Agent 均未设 `temperature`，复跑实测 **96.25% / 97.50%**，三次错题集完全不重叠。已在 `README.md` 核心指标 / `AGENTS.md` 红线 7 / `分流评测报告.md` / `需求分析文档.md` 四处加「单次实测」口径说明，**禁止表述为「稳定准确率」**
 
 ### Fixed（修复）
 
@@ -44,11 +52,14 @@
 
 | 项 | 数据 |
 |---|---|
-| pytest | **22 passed**（smoke / API 契约 / 退货状态机 / 测试隔离回归） |
+| pytest | **31 passed**（smoke / API 契约 / 退货状态机 / 测试隔离回归 / SSE 帧协议 9 例） |
 | CI（GitHub Actions） | run #1 ❌ 退出码 2（裸 `pytest` 收集期 `ModuleNotFoundError`）→ 修复后 run #2 ✅ 全部步骤 success（CI 环境无本地模型，为 21 passed + 1 skipped） |
 | 预热日志 | `[RAG] 预热完成：1328 chunks` |
 | 索引指纹稳定性 | 修复前连续 3 次冷启动指纹均漂移；修复后不再漂移（复用索引） |
 | 测试隔离（A/B 对照） | 置空 `RAG_PERSIST_DIR` 跑一次 pytest → 开发索引 1328 → **28 chunks**（复现污染）；修复后跑 pytest → 索引 chunks 与 mtime **完全不变** |
+| SSE 帧协议（mock） | `tests/test_chat_stream.py` 9 例：5 类帧 + `delta.mid` 分段替换 + 前言被正式答复替换 + `done.reply` 权威性 + 早退分支 |
+| SSE 端到端（真实后端） | Node 直连活后端：5/5 查询文本段数 = 1、零英文前言，首字 **1477–2389ms**；屏上内容 === `done.reply`（解帧断言 27 例通过） |
+| nginx 流式（隔离实验） | 假 SSE 源（不带 `X-Accel-Buffering` 响应头）+ 同一 nginx 两个 location：带三指令帧到达跨度 **1856ms**（逐帧），旧配置 **1ms**（全攒末尾）→ 三指令在后端不带该响应头时必需 |
 | 退货状态机 | 幂等（同订单重复申请返回同一 case）+ 撤销回滚（仅「待审核」可撤） |
 | 反向对照（负向验证） | 模拟旧实现（只写 Context）查得 `待发货`；走 `cancel_order_tool` 后查得 `已取消` —— 证明断言具备判别力 |
 | 文档一致性 | 全仓对已删除 UI 组件的引用为 0；chunk 数现状口径统一为 1328（历史存档数字保留并标注） |

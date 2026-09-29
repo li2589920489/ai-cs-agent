@@ -1,6 +1,7 @@
 """电商客服AI智能体 — 淘宝风格多Agent客服系统入口"""
 
 import asyncio
+import json
 import os
 import time
 import csv
@@ -11,9 +12,10 @@ from typing import Any, Dict
 
 from fastapi import Depends, FastAPI, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from chat_service import run_chat, reset_session_escalation
+from chat_service import run_chat, reset_session_escalation, run_chat_stream
 import knowledge_store
 import order_store
 import doc_importer
@@ -303,6 +305,69 @@ async def api_chat_poll(session_id: str):
         return {"manual": False, "messages": []}
     agent_msgs = [m for m in ticket.get("messages", []) if m["role"] == "agent"]
     return {"manual": True, "messages": agent_msgs, "ticket_status": ticket["status"]}
+
+
+# ==================== 流式聊天 API（SSE） ====================
+
+# SSE 响应头：
+# - Cache-Control: no-cache —— 避免中间层缓存整包
+# - Connection: keep-alive —— 维持长连接
+# - X-Accel-Buffering: no —— 要求 nginx 不缓冲（保险；正解是 nginx.conf 的 proxy_buffering off）
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(req: ChatRequest, request: Request):
+    """SSE 流式聊天接口。帧格式见 chat_service.run_chat_stream 的 docstring。
+
+    与 /api/chat 的关系：二者并存。非流式端点保留给抖音 webhook 链路、
+    前端降级路径，以及 A/B 对比基线（见 SSE流式改造_原子任务_v1.md §4-D10）。
+    """
+    # 限流与校验放在 StreamingResponse 之前：失败可直接回 JSON，
+    # 前端无需在 SSE 解析器里再处理「HTTP 层错误」，判错路径与 /api/chat 一致。
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip):
+        return JSONResponse({"error": "操作过于频繁，请稍后再试。"}, status_code=429)
+
+    msg = req.message.strip()
+    if not msg or len(msg) > 1000:
+        return JSONResponse({"error": "消息为空或过长"}, status_code=422)
+
+    # 人工接管：语义与 /api/chat 一致（把消息写进工单消息列表，否则坐席看不到）。
+    # 只回 done、不发内容帧 —— 前端在 manualMode 下本就不渲染后端回复，
+    # 发内容帧会引入协议外的帧类型（见 §4-D8）。
+    if req.session_id and req.session_id in _manual_sessions:
+        ticket_id = _manual_sessions[req.session_id]
+        ticket = next((t for t in _escalation_tickets if t["id"] == ticket_id), None)
+        if ticket:
+            ticket["messages"].append({
+                "role": "user", "content": msg,
+                "time": datetime.now().isoformat(timespec="seconds"),
+            })
+
+            async def manual_gen():
+                payload = json.dumps(
+                    {"session_id": req.session_id, "final_agent": "Human Escalation Agent"},
+                    ensure_ascii=False,
+                )
+                yield f"event: done\ndata: {payload}\n\n"
+
+            return StreamingResponse(manual_gen(), media_type="text/event-stream",
+                                     headers=_SSE_HEADERS)
+
+    async def gen():
+        try:
+            async for name, data in run_chat_stream(msg, req.session_id):
+                payload = json.dumps(data, ensure_ascii=False)
+                yield f"event: {name}\ndata: {payload}\n\n"
+        except Exception as e:  # noqa: BLE001
+            print(f"[ERROR] chat stream: {type(e).__name__}: {e}")
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 # ==================== 商品知识库 API ====================

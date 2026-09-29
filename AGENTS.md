@@ -27,9 +27,9 @@ AI 电商客服系统：**6 Agent 协作**（Triage 分诊 + 订单/商品/售�
 ```
 ai-cs-agent/
 ├── python-backend/                  # 后端（工作目录）
-│   ├── main.py                      # FastAPI 入口（/api/chat /api/knowledge /api/escalations /health）
-│   ├── chat_service.py              # 共享 run_chat()：消息→Triage→Agent→回复+trace；会话 _sessions 在此
-│   ├── server.py                    # ChatKit 桥接（官方组件）
+│   ├── main.py                      # FastAPI 入口（/api/chat /api/chat/stream /api/knowledge /api/escalations /health）
+│   ├── chat_service.py              # 共享 run_chat() / run_chat_stream()：消息→Triage→Agent→回复+trace；会话 _sessions 在此
+│   ├── server.py                    # ★ ChatKit 桥接（死代码：全仓无 import，唯一入口是 uvicorn main:app）
 │   ├── mcp_server.py                # FastMCP Server（4 工具）
 │   ├── after_sales_graph.py         # LangGraph 售后状态机（独立，见红线 2）
 │   ├── knowledge_store.py           # SQLite 知识库（多租户字段）
@@ -70,9 +70,10 @@ ai-cs-agent/
 ├── ui/                              # Next.js 前端
 │   ├── app/page.tsx                 # 3 Tab 布局（客服对话/知识库/坐席工作台）
 │   ├── components/                  # chat-panel / knowledge-panel / agent-workspace / escalation-panel / guardrails 等
-│   └── lib/api.ts types.ts utils.ts
+│   └── lib/                         #   api.ts / sse.ts（SSE 解帧）/ chat-stream.ts（进度态）/ types.ts / utils.ts
 ├── docs/                            # 演示截图 + 评测报告 + 部署指南
 ├── docker-compose.yml               # backend / frontend / nginx 三 service
+├── nginx.conf                       # 反向代理（/api/ 含流式三指令）
 ├── AGENTS.md / README.md / DESIGN.md / CHANGELOG.md / 技术方案文档.md / 需求分析文档.md
 └── LICENSE                          # MIT（基于 openai/openai-cs-agents-demo，勿删声明）
 ```
@@ -96,6 +97,7 @@ ai-cs-agent/
 6. **平台接入仅 Mock**。淘宝/抖店只有适配层 + webhook + mock，无真实店铺资质。
 
 7. **评测数字口径**（禁止改动或另造）：Triage 98.75%（79/80）；RAG 纯向量 R@10 75.0% / MRR 52.1% / nDCG 57.6%；自有语料纯向量 97.33% / 混合 100%；Prompt 88.46%（26 条）；6 Agent / 13 function_tool + 2 verdict + 4 MCP；Context 17 字段；**1328 chunks**（1321 product + 7 policy）；镜像 2.6 GB。
+   - **Triage 98.75% 的引用口径**：该值是**单次实测**，`easy` 组会漂移。6 个 Agent 均未设 `temperature`（走 DeepSeek 默认值，非确定）→ 复跑实测 **96.25% / 97.50%**，三次错题集**完全不重叠**。故**不得**表述为「稳定准确率 / 稳定 98.75%」；正确口径是「单次实测 98.75%，实测区间 96.25%–98.75%」。要稳定数字须先固定 `temperature=0`。详见 `分流评测报告.md` 开头。
 
 ---
 
@@ -160,6 +162,7 @@ docker compose up -d --build                      # 在项目根目录（backend
 | 路径 | 说明 | 鉴权 |
 |---|---|---|
 | `POST /api/chat` | 核心对话，返回 `reply` + `agent_trace` + `escalation` + `session_id` | 无 |
+| `POST /api/chat/stream` | **SSE 流式对话**：5 类帧 `delta` / `trace` / `escalation` / `error` / `done`；`delta` 带 `mid`（消息标识）、`done` 带权威 `reply` | 无 |
 | `GET /api/chat/poll?session_id=` | 买家轮询坐席回复 | **无**（已知限制，见红线 5） |
 | `GET/POST/PUT/DELETE /api/knowledge` | 知识库 CRUD（`main.py:320-352`） | 读匿名 / 写 `get_current_tenant` |
 | `POST /api/knowledge/import`、`/import-doc` | CSV / PDF·Word 批量导入 | `get_current_tenant` |

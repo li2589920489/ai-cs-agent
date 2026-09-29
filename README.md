@@ -27,6 +27,8 @@
 | **工具数量** | **15 个 function_tool（业务 13 + 护栏 verdict 2）+ 4 个 MCP 工具 = 19 个工具** |
 | **容器镜像大小** | **2.6 GB**（CPU 版 torch，从 6 GB 瘦身） |
 
+> **关于 Triage 准确率的说明**：`98.75%` 为**单次实测**。6 个 Agent 未固定 `temperature`（走 DeepSeek 默认值），复跑存在波动（实测 96.25% / 97.50% / 98.75%，错题集每次不同，不重叠）。要得到可复现的稳定数字，需先将 `temperature` 置 0；详见 [分流评测报告.md](分流评测报告.md) 开头。其余指标为稳定复现结果。
+
 ---
 
 ## 与原示例（openai-cs-agents-demo）的差异
@@ -81,6 +83,7 @@
 6. **Human-in-the-Loop**：敏感/复杂场景自动转人工，生成结构化摘要与工单。
 7. **多租户知识库**：SQLite + `tenant_id` 字段 + 查询层过滤 + API Key 鉴权，预留迁移 PostgreSQL。
 8. **轻量化容器化**：CPU torch 镜像 6 GB → 2.6 GB，模型卷与容器解耦。
+9. **SSE 流式输出**：`POST /api/chat/stream` 逐帧下发（`delta` 带消息标识 `mid`、`done` 带权威 `reply`），前端用 `fetch` + `ReadableStream` 手工解帧（`EventSource` 只支持 GET，且要处理 UTF-8 多字节跨 chunk）；`trace` 帧驱动「正在查找商品信息…」进度提示，多跳架构下首字约 1.5–2.4s（本机实测）。
 
 ---
 
@@ -277,9 +280,9 @@ cd python-backend
 ```
 ai-cs-agent/
 ├── python-backend/
-│   ├── main.py                  # FastAPI 入口（/api/chat /api/knowledge /health）
-│   ├── server.py                # ChatKit 桥接（OpenAI 官方组件）
-│   ├── chat_service.py          # 共享 run_chat()：消息→Triage→Agent→回复+trace
+│   ├── main.py                  # FastAPI 入口（/api/chat /api/chat/stream /api/knowledge /health）
+│   ├── server.py                # ★ ChatKit 桥接（死代码：全仓无 import，唯一入口是 uvicorn main:app）
+│   ├── chat_service.py          # 共享 run_chat() / run_chat_stream()：消息→Triage→Agent→回复+trace
 │   ├── mcp_server.py            # FastMCP Server（4 工具）
 │   ├── after_sales_graph.py     # LangGraph 售后状态机
 │   ├── demo_rag.py              # RAG 独立验证脚本
@@ -320,9 +323,11 @@ ai-cs-agent/
 │   ├── Dockerfile               # 容器化（CPU torch + 国内源）
 │   └── requirements.txt
 ├── ui/                          # Next.js 前端
+│   └── lib/                     #   api.ts / sse.ts（SSE 解帧）/ chat-stream.ts（进度态）/ types.ts
 ├── docs/                        # 演示文档与截图
 │   ├── screenshots/             # 13 张核心流程截图
 ├── docker-compose.yml           # 一键编排 + 模型卷挂载
+├── nginx.conf                   # 反向代理（/api/ 含流式三指令：proxy_buffering off 等）
 ├── 抖音接入方案.md              # 抖店开放平台接入设计 + Mock 联调
 ├── 淘宝接入方案.md              # 淘宝 TOP API 接入设计 + Mock 联调
 ├── DESIGN.md                    # 系统架构详解

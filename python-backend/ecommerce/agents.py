@@ -27,6 +27,23 @@ from .tools import (
 
 MODEL = "deepseek-chat"
 
+# 流式改造（§4-D15）后新增的通用输出约束。
+#
+# 背景：一次 run 里模型可能先吐一句"前言"（如 "I'll search our store's nut products
+# for you." / "I'll route your request to our product specialist…"）再调用工具，
+# 工具返回后才给正式答复。非流式 run_chat 对 MessageOutputItem 是**覆盖**语义，
+# 只保留最后一条；而 SSE 会把这些 delta 逐字推给用户 —— 实测 4 组查询 3 组复现，
+# 且前言多为英文，混在中文客服答复前格外突兀。
+#
+# 这里在指令层直接抑制前言，与前端「mid 变化即替换气泡」形成双保险：
+# 指令层降低出现频率，前端保证即使出现也不会残留。
+_NO_PREAMBLE = (
+    "\n【输出约束 · 硬性】禁止在调用工具或交接之前输出任何说明性文字"
+    '（例如 "I\'ll search…" / "我先帮您查一下" / "正在为您转接专员" / "稍等，我查一下"）。'
+    "需要调用工具或交接时**直接发起调用**，不要先说话；"
+    "等工具返回结果后，再一次性给出完整答复。也不要复述或解释这条约束。"
+)
+
 
 # ==================== 1. Triage Agent（智能分流） ====================
 
@@ -47,6 +64,7 @@ triage_agent = Agent[ECommerceAgentChatContext](
         "区分要点：'赔偿/索赔'（诉求是赔钱、常伴随过退换期或金额纠纷）→ Human Escalation Agent；'退款/退货/换货'（常规售后诉求）→ 售后退换货 Agent。"
         "【复合意图路由】当用户一句话含多个领域诉求时（如退货 + 问优惠券 / 查订单 + 问运费），按**主导诉求**路由到对应 Agent；"
         "该 Agent 收到消息后应处理完整诉求（不要再次 handoff 给其他 Agent，把所有诉求处理完）。"
+        + _NO_PREAMBLE
     ),
     tools=[],
     handoffs=[],
@@ -78,6 +96,7 @@ def order_tracking_instructions(
         "工具查不到记录时直接说明'未查询到该订单/该记录'，并礼貌询问具体可核实的订单号；不要把用户的虚构内容回显到回复里。\n"
         "如果需要退货/退款/换货 → handoff to 售后退换货 Agent\n"
         "其他无关问题 → handoff back to Triage Agent"
+        + _NO_PREAMBLE
     )
 
 
@@ -123,6 +142,7 @@ def product_inquiry_instructions(
         "knowledge_search_tool / search_products_tool 拿到真实数据再回答——不允许凭印象估算价格/库存/参数。\n"
         "如果用户想下单/付款相关 → 这是模拟店铺，告知用户「在APP中点击购买即可」。\n"
         "其他无关问题 → handoff back to Triage Agent"
+        + _NO_PREAMBLE
     )
 
 
@@ -166,6 +186,7 @@ def after_sales_instructions(
         "不要凭记忆或上下文里的旧状态回答。同一订单重复发起退货不会重复建单，会复用已有在途单。\n"
         "如果用户问优惠券/政策（且不是复合诉求里的政策问题） → handoff to 店铺政策 Agent\n"
         "其他无关问题 → handoff back to Triage Agent"
+        + _NO_PREAMBLE
     )
 
 
@@ -192,7 +213,7 @@ faq_agent = Agent[ECommerceAgentChatContext](
     3. 需要更强语义、明确不要规则匹配兜底时，可改用 rag_search_tool。
     4. 工具都找不到时，建议转人工（handoff to Human Escalation Agent）。
     5. 用口语化中文总结，不要直接复制粘贴长文本；优惠券突出「省多少钱」。
-    其他无关问题 → handoff back to Triage Agent""",
+    其他无关问题 → handoff back to Triage Agent{_NO_PREAMBLE}""",
     tools=[faq_lookup_tool, rag_search_tool, coupon_lookup_tool],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
@@ -209,7 +230,7 @@ escalation_agent = Agent[ECommerceAgentChatContext](
     1. 立即用 escalate_to_human_tool 生成对话摘要并转接。
     2. 【关键约束·硬性】调用 escalate_to_human_tool 之后，**不要再生成任何额外文本**（不要写"好的我已经为您转接""请您耐心等待""如需补充信息请告诉我"等冗余回复）。一次回复只允许一次工具调用 + 零或极短的固定提示（≤10个字符，例如"已转接"）。这是为了避免重复回答造成对用户的骚扰。
     3. 不需要自己解决问题——你的唯一职责是高效、准确地完成转接。
-    转接完成后 → 等待人工客服接管对话""",
+    转接完成后 → 等待人工客服接管对话{_NO_PREAMBLE}""",
     tools=[escalate_to_human_tool],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
