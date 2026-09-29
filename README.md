@@ -140,63 +140,39 @@
 
 ## 一、系统架构
 
-```mermaid
-flowchart TD
-    subgraph FE["① 前端 · Next.js 15"]
-        direction LR
-        F1["买家对话面板<br/>SSE 流式渲染"]
-        F2["知识库管理面板<br/>CRUD · 批量导入"]
-        F3["坐席工作台<br/>工单接管 / 回复"]
-    end
-
-    subgraph GW["② 接入层 · FastAPI + 鉴权"]
-        direction LR
-        G1["/api/chat<br/>/api/chat/stream"]
-        G2["知识库接口 ×7"]
-        G3["工单接口 ×5"]
-        G4["auth.py · API Key(sha256)<br/>→ tenant_id 收口"]
-    end
-
-    subgraph GR["③ 护栏"]
-        direction LR
-        R1["Input Guardrail ×2<br/>相关性 + 越狱"]
-        R2["输入校验 + 限流<br/>60s / 30 次"]
-    end
-
-    subgraph AG["④ Agent 层 · OpenAI Agents SDK"]
-        direction LR
-        A0["Triage 分诊<br/>98.75% (79/80)"]
-        A1["订单详情"]
-        A2["商品知识"]
-        A3["售后退换货"]
-        A4["店铺政策"]
-        A5["Human Escalation<br/>HITL 兜底"]
-    end
-
-    subgraph TL["⑤ 工具层"]
-        direction LR
-        T1["13 个业务 function_tool"]
-        T2["4 个 MCP 工具<br/>FastMCP stdio"]
-        T3["LangGraph 售后状态机<br/>独立原型 · 未接入主链路"]
-    end
-
-    subgraph RG["⑥ 检索层 · RAG"]
-        direction LR
-        RAG1["BGE 语义向量（主力）<br/>自建 numpy 后端"]
-        RAG2["CrossEncoder 重排<br/>检索延迟 50ms 以内"]
-        RAG3["BM25（降级兜底）<br/>默认不参与融合"]
-        RAG4["结果溯源<br/>chunk 带元数据"]
-    end
-
-    subgraph DB["⑦ 数据层 · SQLite"]
-        direction LR
-        D1["knowledge.db<br/>多租户 tenant_id"]
-        D2["auth.db<br/>租户 + API Key"]
-        D3["orders.db<br/>退货状态机 · 库层幂等"]
-        D4["会话记忆<br/>内存态 30min TTL"]
-    end
-
-    FE --> GW --> GR --> AG --> TL --> RG --> DB
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      前端 (Next.js 15)                        │
+│      买家对话（SSE 流式） ｜ 知识库管理面板 ｜ 坐席工作台        │
+└──────────────────────────┬───────────────────────────────────┘
+                           │  /api/* 代理（统一 apiFetch，自动注入 API Key）
+┌──────────────────────────▼───────────────────────────────────┐
+│                   后端 (FastAPI + Uvicorn)                     │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │        6 Agent 智能体（OpenAI Agents SDK）              │  │
+│  │   Triage 分流                                          │  │
+│  │   ├─ 订单详情 Agent（订单/物流）                         │  │
+│  │   ├─ 商品知识 Agent（商品/库存）                         │  │
+│  │   ├─ 售后退换货 Agent（退货/退款）                       │  │
+│  │   ├─ 店铺政策 Agent（政策/优惠券）                       │  │
+│  │   └─ Human Escalation Agent（人工兜底）                 │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  完整 RAG 管线（rag/ 包，9 模块）                        │  │
+│  │  文档解析 → 分块 → BGE 向量化 → numpy(cosine) 检索      │  │
+│  │  → bge-reranker 重排 → 溯源                              │  │
+│  │  （BM25 仅作可插拔降级兜底，不参与默认融合）              │  │
+│  ├────────────────────────────────────────────────────────┤  │
+│  │  MCP Server（FastMCP 4 工具）                            │  │
+│  │  LangGraph 售后状态机（独立原型，未接入主链路）           │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  数据层：knowledge.db / auth.db / orders.db（SQLite）    │  │
+│  │          + 会话记忆（内存态 30min TTL）                  │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                     LLM (DeepSeek API)
 ```
 
 **三条关键链路**：① 检索链路（BGE 向量 → reranker → 溯源）② 工具链路（13 function_tool + 4 MCP 工具）③ 鉴权链路（API Key → tenant_id → 接口收口）。
